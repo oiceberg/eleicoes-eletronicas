@@ -1,0 +1,23 @@
+# ===============================================
+# CRÍTICO: SEGURANÇA E DADOS REAIS
+# ===============================================
+# Credenciais de Servidor e Senhas
+.env
+
+# Arquivos de Dados REAIS e Logs (NÃO DEVEM SUBIR PARA O GITHUB)
+data/*.csv                     # IGNORA TODOS os arquivos CSV da pasta data/
+!data/*.csv.example            # EXCEÇÃO: Permite subir os arquivos de exemplo para demonstração
+
+# ===============================================
+# EXCLUSÕES GERAIS E AMBIENTE
+# ===============================================
+# Python
+__pycache__/
+*.pyc
+venv/
+# Arquivo de teste que não é essencial para o runtime
+test_mailer.py
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db

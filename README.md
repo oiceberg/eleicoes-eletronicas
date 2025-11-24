@@ -78,7 +78,7 @@ python ./src/keys_generator.py
 
   * **`data/envio_confidencial.csv`** (SIGILOSO): Contém Nome, Email, Chave Pública e Chave Privada. Esta é a **ÚNICA ENTRADA** do `mailer.py`.
   * **`data/keys_hash.csv`** (SISTEMA/AUDITORIA): Contém a Chave Pública e o Hash da Chave Privada. **ESTE ARQUIVO DEVE SER IMPORTADO PARA A ABA `keys_hash` DA PLANILHA DE VALIDAÇÃO**.
-  * **`data/lista_eleitores_aptos.csv`** (PÚBLICO): Lista de Nomes E E-mails de Eleitores (para conferência pública).
+  * **`data/lista_eleitores_aptos.csv`** (PÚBLICO): Lista de Nomes e E-mails dos Eleitores (para conferência pública).
   * **`data/lista_chaves_validas.csv`** (PÚBLICO): Lista de Chaves Públicas geradas (para auditoria).
 
 ### Passo 3: Enviar os E-mails
@@ -119,4 +119,6 @@ O código JavaScript (`apps_script_eleicoes_eletronicas.js`) deve ser copiado e 
 
   * **Pós-Envio (CRÍTICO):** Após a conclusão bem-sucedida do envio, **EXCLUA O ARQUIVO `data/envio_confidencial.csv` permanentemente.** Este arquivo contém o mapeamento `Email -> Chave Privada` e representa o maior risco de sigilo do sistema.
   * **MASTER\_SECRET:** A `MASTER_SECRET` no `.env` é o segredo central. Sua perda inviabiliza a auditoria, e seu vazamento compromete o sigilo antes da votação.
-  * **Retomada:** Em caso de interrupção, o sistema retomará automaticamente de onde parou ao definir `SIMULACAO=false` e rodar novamente.# eleicoes-eletronicas
+  * **Retomada:** Em caso de interrupção, o sistema retomará automaticamente de onde parou ao definir `SIMULACAO=false` e rodar novamente.
+
+  # eleicoes-eletronicas
