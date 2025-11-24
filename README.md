@@ -27,7 +27,7 @@ O projeto utiliza a seguinte estrutura. Note que **apenas os arquivos de exemplo
 │   ├── eleitores_base.csv.example      # ⬅️ ENTRADA DE TESTE: Dummy Data (Para testes).
 │   ├── envio_confidencial.csv.example  # ⬅️ ESTRUTURA: Exemplo do arquivo sigiloso de envio.
 │   ├── keys_hash.csv.example           # ⬅️ ESTRUTURA: Exemplo da chave e hash para validação.
-│   ├── lista_eleitores_aptos.csv.example # ⬅️ ESTRUTURA: Exemplo da lista de nomes para auditoria.
+│   ├── lista_eleitores_aptos.csv.example # ⬅️ ESTRUTURA: Exemplo da lista de nomes e e-mails para auditoria.
 │   └── lista_chaves_validas.csv.example  # ⬅️ ESTRUTURA: Exemplo da lista de chaves públicas para auditoria.
 ├── apps_script/                # ⬅️ MÓDULO: Arquivos JavaScript do Google Apps Script.
 ├── .env                        # ⬅️ CONFIGURAÇÃO: Variáveis de ambiente (IGNORADO PELO GIT).
@@ -120,5 +120,3 @@ O código JavaScript (`apps_script_eleicoes_eletronicas.js`) deve ser copiado e 
   * **Pós-Envio (CRÍTICO):** Após a conclusão bem-sucedida do envio, **EXCLUA O ARQUIVO `data/envio_confidencial.csv` permanentemente.** Este arquivo contém o mapeamento `Email -> Chave Privada` e representa o maior risco de sigilo do sistema.
   * **MASTER\_SECRET:** A `MASTER_SECRET` no `.env` é o segredo central. Sua perda inviabiliza a auditoria, e seu vazamento compromete o sigilo antes da votação.
   * **Retomada:** Em caso de interrupção, o sistema retomará automaticamente de onde parou ao definir `SIMULACAO=false` e rodar novamente.
-
-  # eleicoes-eletronicas
