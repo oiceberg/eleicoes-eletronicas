@@ -1,4 +1,3 @@
-
 /**
  * ================================
  *  AGESP | Apps Script (revisado e reativo)
@@ -193,9 +192,9 @@ function resolveUniverseFiscal(intervaloCandidatos, celulas) {
  *   - `intervaloCandidatos` continua opcional (define universo oficial).
  *
  * Uso (Sheets pt-BR; ';'):
- *   =BORDA_POINTS_BY_COLNAME(A2; "Validação Chaves"; "Conselho Executivo"; 'Validação Chaves'!I2:I; 'Conselho Executivo'!A2:A)
+ *   =BORDA_POINTS_BY_COLNAME(A2; "Validação"; "Conselho Executivo"; 'Validação'!I2:I; 'Conselho Executivo'!A2:A)
  *   ou (sem faixaVotos):
- *   =BORDA_POINTS_BY_COLNAME(A2; "Validação Chaves"; "Conselho Executivo"; ; 'Conselho Executivo'!A2:A)
+ *   =BORDA_POINTS_BY_COLNAME(A2; "Validação"; "Conselho Executivo"; ; 'Conselho Executivo'!A2:A)
  */
 function BORDA_POINTS_BY_COLNAME(candidato, nomeDaAba, nomeColuna, faixaVotos, intervaloCandidatos) {
   const alvo = norm(candidato);
@@ -221,9 +220,9 @@ function BORDA_POINTS_BY_COLNAME(candidato, nomeDaAba, nomeColuna, faixaVotos, i
  * depois # de 1ªs, 2ªs, ..., e por fim nome asc.
  *
  * Uso:
- *   =BORDA_SCORECARD_BY_COLNAME("Validação Chaves"; "Conselho Executivo"; 'Validação Chaves'!I2:I; 'Conselho Executivo'!A2:A)
+ *   =BORDA_SCORECARD_BY_COLNAME("Validação"; "Conselho Executivo"; 'Validação'!I2:I; 'Conselho Executivo'!A2:A)
  *   ou (sem faixaVotos):
- *   =BORDA_SCORECARD_BY_COLNAME("Validação Chaves"; "Conselho Executivo"; ; 'Conselho Executivo'!A2:A)
+ *   =BORDA_SCORECARD_BY_COLNAME("Validação"; "Conselho Executivo"; ; 'Conselho Executivo'!A2:A)
  */
 function BORDA_SCORECARD_BY_COLNAME(nomeDaAba, nomeColuna, faixaVotos, intervaloCandidatos) {
   const valores = readVotesOrHeader(nomeDaAba, nomeColuna, faixaVotos);
@@ -315,9 +314,9 @@ function BORDA_SCORECARD(nomeDaAba, letraColuna, faixaVotos, intervaloCandidatos
  * Total de votos do candidato (máx. 1 por cédula; ordem irrelevante).
  *
  * Uso:
- *   =FISCAL_VOTES_BY_COLNAME(A2; "Validação Chaves"; "Conselho Fiscal e de Ética"; 'Validação Chaves'!K2:K; 'Conselho Fiscal'!A2:A)
+ *   =FISCAL_VOTES_BY_COLNAME(A2; "Validação"; "Conselho Fiscal e de Ética"; 'Validação'!K2:K; 'Conselho Fiscal'!A2:A)
  *   ou:
- *   =FISCAL_VOTES_BY_COLNAME(A2; "Validação Chaves"; "Conselho Fiscal e de Ética"; ; 'Conselho Fiscal'!A2:A)
+ *   =FISCAL_VOTES_BY_COLNAME(A2; "Validação"; "Conselho Fiscal e de Ética"; ; 'Conselho Fiscal'!A2:A)
  */
 function FISCAL_VOTES_BY_COLNAME(candidato, nomeDaAba, nomeColuna, faixaVotos, intervaloCandidatos) {
   const alvo = norm(candidato);
@@ -339,9 +338,9 @@ function FISCAL_VOTES_BY_COLNAME(candidato, nomeDaAba, nomeColuna, faixaVotos, i
  * Placar: [Candidato | Votos], ordenado por votos desc e nome asc.
  *
  * Uso:
- *   =FISCAL_SCORECARD_BY_COLNAME("Validação Chaves"; "Conselho Fiscal e de Ética"; 'Validação Chaves'!K2:K; 'Conselho Fiscal'!A2:A)
+ *   =FISCAL_SCORECARD_BY_COLNAME("Validação"; "Conselho Fiscal e de Ética"; 'Validação'!K2:K; 'Conselho Fiscal'!A2:A)
  *   ou:
- *   =FISCAL_SCORECARD_BY_COLNAME("Validação Chaves"; "Conselho Fiscal e de Ética"; ; 'Conselho Fiscal'!A2:A)
+ *   =FISCAL_SCORECARD_BY_COLNAME("Validação"; "Conselho Fiscal e de Ética"; ; 'Conselho Fiscal'!A2:A)
  */
 function FISCAL_SCORECARD_BY_COLNAME(nomeDaAba, nomeColuna, faixaVotos, intervaloCandidatos) {
   const valores = readVotesOrHeader(nomeDaAba, nomeColuna, faixaVotos);

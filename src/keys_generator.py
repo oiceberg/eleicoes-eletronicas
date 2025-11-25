@@ -23,7 +23,7 @@ ENTRADAS:
 SAÍDAS GERADAS (Quatro Arquivos Principais):
     1. data/envio_confidencial.csv (SIGILOSO): Nome, Email, Chave Pública, Chave Privada. (ENTRADA DO MAILER)
     2. data/keys_hash.csv (SISTEMA/AUDITORIA): Chave Pública e Hash da Chave Privada. (IMPORTAR PARA PLANILHA)
-    3. data/lista_eleitores_aptos.csv (PÚBLICO): Lista de Nomes (Auditoria).
+    3. data/lista_eleitores_aptos.csv (PÚBLICO): Lista de Nomes e Emails (Auditoria).
     4. data/lista_chaves_validas.csv (PÚBLICO): Lista de Chaves Públicas (Auditoria).
 
 DEPENDÊNCIAS:
