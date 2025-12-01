@@ -1,1 +1,5 @@
-pandas
+# requirements.txt
+
+google-auth
+google-api-python-client
+tomli
