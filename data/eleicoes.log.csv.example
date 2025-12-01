@@ -1,0 +1,117 @@
+﻿timestamp;is_production;level;email;user_id;message
+2025-12-01T00:01:30;True;INFO;jsilva@gmail.com;597232;Google Sheets atualizado.
+2025-12-01T00:01:33;True;INFO;jsilva@gmail.com;597232;E-mail enviado com sucesso (SMTP).
+2025-12-01T00:13:54;False;INFO;jsilva@gmail.com;920353;Google Sheets atualizado.
+2025-12-01T00:13:54;False;INFO;jsilva@gmail.com;920353;Simulação de envio bem-sucedida.
+2025-12-01T00:15:34;False;INFO;jsilva@gmail.com;900599;Google Sheets atualizado.
+2025-12-01T00:15:34;False;INFO;jsilva@gmail.com;900599;Simulação de envio bem-sucedida.
+2025-12-01T00:22:03;False;INFO;jsilva@gmail.com;266786;Google Sheets atualizado.
+2025-12-01T00:22:03;False;INFO;jsilva@gmail.com;266786;Simulação de envio bem-sucedida.
+2025-12-01T00:22:37;False;INFO;jsilva@gmail.com;N/A;Reenvio: 1 registros invalid.
+2025-12-01T00:22:46;False;INFO;jsilva@gmail.com;344341;Google Sheets atualizado.
+2025-12-01T00:22:46;False;INFO;jsilva@gmail.com;344341;Simulação de envio bem-sucedida.
+2025-12-01T00:23:56;False;INFO;jsilva@gmail.com;N/A;Reenvio: 2 registros invalid.
+2025-12-01T00:24:06;False;INFO;jsilva@gmail.com;743705;Google Sheets atualizado.
+2025-12-01T00:24:06;False;INFO;jsilva@gmail.com;743705;Simulação de envio bem-sucedida.
+2025-12-01T00:26:37;False;INFO;jsilva@gmail.com;N/A;Reenvio: 3 registros invalid.
+2025-12-01T00:26:47;False;INFO;jsilva@gmail.com;862604;Google Sheets atualizado.
+2025-12-01T00:26:47;False;INFO;jsilva@gmail.com;862604;Simulação de envio bem-sucedida.
+2025-12-01T00:30:40;False;INFO;jsilva@gmail.com;N/A;Reenvio: 4 registros invalidados
+2025-12-01T00:30:51;False;INFO;jsilva@gmail.com;253669;Google Sheets atualizado.
+2025-12-01T00:30:51;False;INFO;jsilva@gmail.com;253669;Simulação de envio bem-sucedida.
+2025-12-01T00:37:28;False;INFO;jsilva@gmail.com;N/A;Reenvio: 6 registros invalidados
+2025-12-01T00:37:39;False;INFO;jsilva@gmail.com;564830;Google Sheets atualizado.
+2025-12-01T00:37:39;False;INFO;jsilva@gmail.com;564830;Simulação de envio bem-sucedida.
+2025-12-01T00:45:21;False;INFO;jsilva@gmail.com;N/A;Reenvio: 7 registros invalidados
+2025-12-01T00:45:27;False;INFO;jsilva@gmail.com;122359;Google Sheets atualizado.
+2025-12-01T00:45:27;False;INFO;jsilva@gmail.com;122359;Simulação de envio bem-sucedida.
+2025-12-01T00:46:00;False;INFO;jsilva@gmail.com;N/A;Reenvio: 8 registros invalidados
+2025-12-01T00:46:12;False;INFO;jsilva@gmail.com;957552;Google Sheets atualizado.
+2025-12-01T00:46:12;False;INFO;jsilva@gmail.com;957552;Simulação de envio bem-sucedida.
+2025-12-01T01:30:56;False;INFO;jsilva@gmail.com;N/A;Reenvio: 9 registros invalidados
+2025-12-01T01:31:09;False;INFO;jsilva@gmail.com;315529;Google Sheets atualizado.
+2025-12-01T01:31:09;False;INFO;jsilva@gmail.com;315529;Simulação de envio bem-sucedida.
+2025-12-01T01:42:15;False;INFO;jsilva@gmail.com;N/A;Reenvio: 10 registros invalidados
+2025-12-01T01:42:28;False;INFO;jsilva@gmail.com;102308;Google Sheets atualizado.
+2025-12-01T01:42:28;False;INFO;jsilva@gmail.com;102308;Simulação de envio bem-sucedida.
+2025-12-01T01:58:11;False;INFO;jsilva@gmail.com;N/A;Reenvio: 11 registros invalidados
+2025-12-01T01:58:23;False;INFO;jsilva@gmail.com;667961;Google Sheets atualizado.
+2025-12-01T01:58:23;False;INFO;jsilva@gmail.com;667961;Simulação de envio bem-sucedida.
+2025-12-01T02:04:21;False;INFO;fulano@hotmail.com;462252;Google Sheets atualizado.
+2025-12-01T02:04:21;False;INFO;fulano@hotmail.com;462252;Simulação de envio bem-sucedida.
+2025-12-01T02:33:46;False;INFO;jsilva@gmail.com;N/A;Reenvio: 12 registros invalidados
+2025-12-01T02:34:00;False;INFO;jsilva@gmail.com;248384;Google Sheets atualizado.
+2025-12-01T02:34:00;False;INFO;jsilva@gmail.com;248384;Simulação de envio bem-sucedida.
+2025-12-01T02:53:29;False;INFO;jsilva@gmail.com;N/A;Reenvio: 13 registros invalidados
+2025-12-01T02:53:42;False;INFO;jsilva@gmail.com;467239;Google Sheets atualizado.
+2025-12-01T02:53:42;False;INFO;jsilva@gmail.com;467239;Simulação de envio bem-sucedida.
+2025-12-01T03:04:36;False;INFO;fulano@hotmail.com;N/A;Reenvio: 1 registros invalidados
+2025-12-01T03:04:45;False;INFO;fulano@hotmail.com;599418;Google Sheets atualizado.
+2025-12-01T03:04:45;False;INFO;fulano@hotmail.com;599418;Simulação de envio bem-sucedida.
+2025-12-01T03:15:10;False;INFO;fulano@hotmail.com;N/A;Reenvio: 2 registros invalidados
+2025-12-01T03:15:20;False;INFO;fulano@hotmail.com;917909;Google Sheets atualizado.
+2025-12-01T03:15:21;False;ERROR;fulano@hotmail.com;917909;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 403 when requesting https://script.googleapis.com/v1/scripts/1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw:run?alt=json returned ""Apps Script API has not been used in project 466376446404 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/script.googleapis.com/overview?project=466376446404 then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry."". Details: ""[{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': 'SERVICE_DISABLED', 'domain': 'googleapis.com', 'metadata': {'consumer': 'projects/466376446404', 'activationUrl': 'https://console.developers.google.com/apis/api/script.googleapis.com/overview?project=466376446404', 'service': 'script.googleapis.com', 'containerInfo': '466376446404', 'serviceTitle': 'Apps Script API'}}, {'@type': 'type.googleapis.com/google.rpc.LocalizedMessage', 'locale': 'en-US', 'message': 'Apps Script API has not been used in project 466376446404 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/script.googleapis.com/overview?project=466376446404 then retry. If you enabled this API recently, wait a few minutes for the action to propagate to our systems and retry.'}, {'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Google developers console API activation', 'url': 'https://console.developers.google.com/apis/api/script.googleapis.com/overview?project=466376446404'}]}]"">"
+2025-12-01T03:17:56;False;INFO;fulano@hotmail.com;N/A;Reenvio: 3 registros invalidados
+2025-12-01T03:18:06;False;INFO;fulano@hotmail.com;976066;Google Sheets atualizado.
+2025-12-01T03:18:08;False;ERROR;fulano@hotmail.com;976066;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 400 when requesting https://script.googleapis.com/v1/scripts/1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw:run?alt=json returned ""Request contains an invalid argument."". Details: ""Request contains an invalid argument."">"
+2025-12-01T03:33:09;False;INFO;fulano@hotmail.com;N/A;Reenvio: 4 registros invalidados
+2025-12-01T03:33:12;False;ERROR;fulano@hotmail.com;353136;"Falha CRÍTICA no Google Sheets: Falha na escrita da linha no Sheets: <HttpError 404 when requesting https://sheets.googleapis.com/v4/spreadsheets/AKfycbwwCDkLoZusc2uOMbBd83JVf2Nk7FtvLg-oKfBxROjT5lOwu2MU1Ye8DTSDQ95gyvs/values/chaves_publicas%21A%3AF:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS&alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T03:33:38;False;INFO;fulano@hotmail.com;N/A;Reenvio: 5 registros invalidados
+2025-12-01T03:33:49;False;INFO;fulano@hotmail.com;305046;Google Sheets atualizado.
+2025-12-01T03:33:51;False;ERROR;fulano@hotmail.com;305046;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 400 when requesting https://script.googleapis.com/v1/scripts/1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw:run?alt=json returned ""Request contains an invalid argument."". Details: ""Request contains an invalid argument."">"
+2025-12-01T03:34:54;False;INFO;fulano@hotmail.com;N/A;Reenvio: 6 registros invalidados
+2025-12-01T03:34:56;False;ERROR;fulano@hotmail.com;985134;"Falha CRÍTICA no Google Sheets: Falha na escrita da linha no Sheets: <HttpError 404 when requesting https://sheets.googleapis.com/v4/spreadsheets/AKfycbwwCDkLoZusc2uOMbBd83JVf2Nk7FtvLg-oKfBxROjT5lOwu2MU1Ye8DTSDQ95gyvs/values/chaves_publicas%21A%3AF:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS&alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T03:41:11;False;INFO;fulano@hotmail.com;N/A;Reenvio: 7 registros invalidados
+2025-12-01T03:41:23;False;INFO;fulano@hotmail.com;331201;Google Sheets atualizado.
+2025-12-01T03:41:26;False;ERROR;fulano@hotmail.com;331201;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbwwCDkLoZusc2uOMbBd83JVf2Nk7FtvLg-oKfBxROjT5lOwu2MU1Ye8DTSDQ95gyvs:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T03:48:09;False;INFO;fulano@hotmail.com;N/A;Reenvio: 8 registros invalidados
+2025-12-01T03:48:21;False;INFO;fulano@hotmail.com;362786;Google Sheets atualizado.
+2025-12-01T03:48:24;False;ERROR;fulano@hotmail.com;362786;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbykn7Q8YPCIQ5xykd6BQvXmbrklxIk92MeC_j_eDEeHxi14B2L5L_onGm1yPCsKQXdx:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T03:59:46;False;INFO;fulano@hotmail.com;N/A;Reenvio: 9 registros invalidados
+2025-12-01T03:59:59;False;INFO;fulano@hotmail.com;735567;Google Sheets atualizado.
+2025-12-01T04:00:02;False;ERROR;fulano@hotmail.com;735567;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbykn7Q8YPCIQ5xykd6BQvXmbrklxIk92MeC_j_eDEeHxi14B2L5L_onGm1yPCsKQXdx:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:13:20;False;INFO;fulano@hotmail.com;N/A;Reenvio: 10 registros invalidados
+2025-12-01T04:13:32;False;INFO;fulano@hotmail.com;770872;Google Sheets atualizado.
+2025-12-01T04:13:35;False;ERROR;fulano@hotmail.com;770872;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbykn7Q8YPCIQ5xykd6BQvXmbrklxIk92MeC_j_eDEeHxi14B2L5L_onGm1yPCsKQXdx:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:16:25;False;INFO;fulano@hotmail.com;N/A;Reenvio: 11 registros invalidados
+2025-12-01T04:16:38;False;INFO;fulano@hotmail.com;119766;Google Sheets atualizado.
+2025-12-01T04:16:40;False;ERROR;fulano@hotmail.com;119766;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbykn7Q8YPCIQ5xykd6BQvXmbrklxIk92MeC_j_eDEeHxi14B2L5L_onGm1yPCsKQXdx:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:18:30;False;INFO;fulano@hotmail.com;N/A;Reenvio: 12 registros invalidados
+2025-12-01T04:18:43;False;INFO;fulano@hotmail.com;417687;Google Sheets atualizado.
+2025-12-01T04:18:46;False;ERROR;fulano@hotmail.com;417687;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbykn7Q8YPCIQ5xykd6BQvXmbrklxIk92MeC_j_eDEeHxi14B2L5L_onGm1yPCsKQXdx:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:25:30;False;INFO;fulano@hotmail.com;N/A;Reenvio: 13 registros invalidados
+2025-12-01T04:25:43;False;INFO;fulano@hotmail.com;651316;Google Sheets atualizado.
+2025-12-01T04:25:46;False;ERROR;fulano@hotmail.com;651316;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbyCF7ZCw_IzLLealLoGEWHYWzL__VRmkCsSfvPD-4dFdYcexvJbgnwI4C4exuLBGaOa:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:28:13;False;INFO;fulano@hotmail.com;N/A;Reenvio: 14 registros invalidados
+2025-12-01T04:28:27;False;INFO;fulano@hotmail.com;124621;Google Sheets atualizado.
+2025-12-01T04:28:29;False;ERROR;fulano@hotmail.com;124621;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbyCF7ZCw_IzLLealLoGEWHYWzL__VRmkCsSfvPD-4dFdYcexvJbgnwI4C4exuLBGaOa:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:40:28;False;INFO;fulano@hotmail.com;N/A;Reenvio: 15 registros invalidados
+2025-12-01T04:40:41;False;INFO;fulano@hotmail.com;994966;Google Sheets atualizado.
+2025-12-01T04:40:43;False;ERROR;fulano@hotmail.com;994966;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/AKfycbyCF7ZCw_IzLLealLoGEWHYWzL__VRmkCsSfvPD-4dFdYcexvJbgnwI4C4exuLBGaOa:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T04:44:45;False;INFO;fulano@hotmail.com;N/A;Reenvio: 16 registros invalidados
+2025-12-01T04:45:00;False;INFO;fulano@hotmail.com;205675;Google Sheets atualizado.
+2025-12-01T04:45:03;False;ERROR;fulano@hotmail.com;205675;"Falha CRÍTICA no Google Sheets: Falha ao chamar função no Apps Script: <HttpError 404 when requesting https://script.googleapis.com/v1/scripts/1YnXTxFgFexJTsm9xLF9Ib1XGWXo6vVAYhZrNcjwtmBxfioF35CvqjsZ0:run?alt=json returned ""Requested entity was not found."". Details: ""Requested entity was not found."">"
+2025-12-01T05:05:11;False;INFO;fulano@hotmail.com;N/A;Reenvio: 17 registros invalidados
+2025-12-01T05:05:25;False;INFO;fulano@hotmail.com;621263;Google Sheets atualizado.
+2025-12-01T05:05:25;False;ERROR;fulano@hotmail.com;621263;"Falha CRÍTICA no Google Sheets: <HttpError 400 when requesting https://sheets.googleapis.com/v4/spreadsheets/1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw/values/config_automatica%21A1?valueInputOption=RAW&alt=json returned ""Unable to parse range: config_automatica!A1"". Details: ""Unable to parse range: config_automatica!A1"">"
+2025-12-01T05:06:14;False;INFO;fulano@hotmail.com;N/A;Reenvio: 18 registros invalidados
+2025-12-01T05:06:29;False;INFO;fulano@hotmail.com;225302;Google Sheets atualizado.
+2025-12-01T05:06:35;False;INFO;fulano@hotmail.com;225302;Simulação de envio bem-sucedida.
+2025-12-01T05:07:41;False;INFO;fulano@hotmail.com;N/A;Reenvio: 19 registros invalidados
+2025-12-01T05:07:55;False;INFO;fulano@hotmail.com;733355;Google Sheets atualizado.
+2025-12-01T05:08:01;False;INFO;fulano@hotmail.com;733355;Simulação de envio bem-sucedida.
+2025-12-01T05:11:19;False;INFO;fulano@hotmail.com;N/A;Reenvio: 20 registros invalidados
+2025-12-01T05:11:35;False;INFO;fulano@hotmail.com;927989;Google Sheets atualizado.
+2025-12-01T05:11:40;False;INFO;fulano@hotmail.com;927989;Simulação de envio bem-sucedida.
+2025-12-01T05:12:47;False;INFO;fulano@hotmail.com;N/A;Reenvio: 21 registros invalidados
+2025-12-01T05:13:03;False;INFO;fulano@hotmail.com;354286;Google Sheets atualizado.
+2025-12-01T05:13:08;False;INFO;fulano@hotmail.com;354286;Simulação de envio bem-sucedida.
+2025-12-01T05:14:59;False;INFO;fulano@hotmail.com;N/A;Reenvio: 22 registros invalidados
+2025-12-01T05:15:14;False;INFO;fulano@hotmail.com;818438;Google Sheets atualizado.
+2025-12-01T05:15:20;False;INFO;fulano@hotmail.com;818438;Simulação de envio bem-sucedida.
+2025-12-01T05:16:50;False;INFO;fulano@hotmail.com;N/A;Reenvio: 23 registros invalidados
+2025-12-01T05:17:06;False;INFO;fulano@hotmail.com;710493;Google Sheets atualizado.
+2025-12-01T05:17:11;False;INFO;fulano@hotmail.com;710493;Simulação de envio bem-sucedida.
+2025-12-01T05:18:47;False;INFO;fulano@hotmail.com;N/A;Reenvio: 24 registros invalidados
+2025-12-01T05:19:03;False;INFO;fulano@hotmail.com;370539;Google Sheets atualizado.
+2025-12-01T05:19:09;False;INFO;fulano@hotmail.com;370539;Simulação de envio bem-sucedida.

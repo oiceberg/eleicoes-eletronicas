@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Eleições AGESP</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #333333; line-height: 1.6;">
+    <div style="max-width: 600px; margin: 0 auto; border: 1px solid #dddddd; padding: 20px; border-radius: 8px;">
+        
+        <h2 style="color: #0056b3; text-align: center;">Eleições AGESP {ano}</h2>
+        
+        <p>Olá <strong>{nome}</strong>,</p>
+        
+        <p>Abaixo estão suas credenciais exclusivas para participar da votação eletrônica. Guarde-as com segurança.</p>
+        
+        <div style="background-color: #f8f9fa; padding: 15px; border-left: 5px solid #0056b3; margin: 20px 0;">
+            <p style="margin: 0 0 10px 0;">
+                <strong>ID de Validação: </strong>
+                <code style="font-size: 1.3em; background: #e9ecef; padding: 2px 5px; border-radius: 4px;">{user_id}</code>
+            </p>
+            <p style="margin: 0 0 10px 0;">
+                <strong>Chave Privada: </strong>
+                <code style="font-size: 1.3em; background: #e9ecef; padding: 2px 5px; border-radius: 4px;">{priv_key}</code>
+            </p>
+            <p style="margin: 0;">
+                <span style="font-size: 0.8em; color: #666;">Chave Pública (para controle): {pub_key}</span>
+            </p>
+        </div>
+
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="{link_votacao}" style="background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px;">
+                ACESSAR FORMULÁRIO DE VOTAÇÃO
+            </a>
+            <p style="font-size: 1.0em; color: #777; margin-top: 10px;">
+                <br>Ou copie o link: {link_votacao}
+            </p>
+        </div>
+
+        <div style="border: 1px solid #dc3545; background-color: #fff5f5; padding: 10px; border-radius: 5px; color: #721c24; font-size: 0.9em;">
+            <strong>ALERTA DE SEGURANÇA</strong><p>Você recebeu seu <strong>ID de Validação</strong> (6 números) e sua <strong>Chave Privada</strong> (12 letras maiúsculas).
+            <br>
+            <ul>
+                <li>O <strong>ID de Validação</strong> é o identificador público utilizado pelo eleitor para validar a integridade do seu voto na planilha de votação. Ele se torna visível a todos imediatamente após o registro do voto. <strong>Mantê-lo em sigilo é o que garante o sigilo do seu voto.</strong></li>
+                <li>A <strong>Chave Privada</strong> é o identificador secreto utilizado pelo sistema para legitimar o seu voto. Ela assegura que somente o eleitor possa votar com suas credenciais exclusivas, sendo imediatamente convertida em um código criptográfico (Chave Pública) na planilha de votação. <strong>Mantê-la em sigilo é o que garante que ninguém vote usando suas credenciais.</strong></li>
+            </ul>
+            ⚠ <strong>Mantenha AMBOS em sigilo absoluto. Nunca os compartilhe.</strong> Ninguém, nem mesmo a Comissão Eleitoral, tem acesso à sua Chave Privada.
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #eeeeee; margin: 30px 0;">
+        
+        <p style="font-size: 0.8em; color: #666666; text-align: center;">
+            Enviado pela <strong>{from_name}</strong><br>
+            Este é um e-mail automático, por favor não responda nem encaminhe a ninguém.
+        </p>
+    </div>
+</body>
+</html>
