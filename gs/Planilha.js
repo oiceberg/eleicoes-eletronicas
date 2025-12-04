@@ -10,11 +10,12 @@ const SHEET_NAMES = {
 };
 
 const COL_NAMES = {
-  ID: 'ID',
-  PRIV_KEY: ['Chave Privada', 'Chave privada', 'chave privada', 'ChavePrivada'],
-  PUB_KEY: 'Chave Pública',
+  ID_KEY: 'user_id', 
+  PUB_KEY: 'pub_key', 
+  VALIDITY: 'is_active',  
+  ID_RESPONSE: 'ID',
+  PRIV_KEY: 'Chave Privada',
   CREDENTIALS: 'Credenciais',
-  VALIDITY: 'Validade',
   FISCAL_VOTE: 'Votação para o Conselho Fiscal e de Ética'
 };
 
@@ -88,35 +89,55 @@ function padRows(rows, width) {
 // 3. FUNÇÕES DE SERVIÇO DE CHAVES (KEY_SERVICE)
 // ======================================================================================
 
+// [Localização aproximada: Linhas 94-118 do seu script]
+
 /**
- * Retorna mapa { ID -> {pub_key, is_active} } para TODAS as chaves ou apenas ATIVAS.
- * @param {boolean} onlyActive Se true, retorna apenas chaves ativas.
+ * Obtém todas as chaves públicas válidas da aba de chaves e as mapeia pelo ID.
+ * @param {boolean} getActiveKeysOnly Se true, retorna apenas chaves ativas.
+ * @returns {Object} Mapa de chaves {ID: {pub_key, is_active, ...}}.
  */
-function getKeysMap(onlyActive = false) {
+function getKeysMap(getActiveKeysOnly) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(SHEET_NAMES.KEYS);
-  if (!sheet) return {};
-
-  const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return {};
-
-  const rows = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
-  const keyMap = {};
-
-  for (const row of rows) {
-    const idKey = normalizeId(row[0]);
-    if (!idKey) continue;
-
-    const isActive = row[2] === true || String(row[2]).toLowerCase().trim() === 'true';
-    
-    if (!onlyActive || isActive) {
-      keyMap[idKey] = {
-        pub_key: String(row[1] || '').trim(),
-        is_active: isActive
-      };
-    }
+  const keysSheet = ss.getSheetByName(SHEET_NAMES.KEYS);
+  
+  if (!keysSheet) {
+    throw new Error(`Aba de chaves '${SHEET_NAMES.KEYS}' não encontrada. Abortando.`);
   }
-  return keyMap;
+  
+  const lastRow = keysSheet.getLastRow();
+  if (lastRow <= 1) return {};
+
+  const headers = keysSheet.getRange(1, 1, 1, keysSheet.getLastColumn()).getValues()[0];
+
+  const ID_IDX = getIndexByColNameCI(headers, COL_NAMES.ID_KEY); // Busca por 'user_id'
+  const PUB_IDX = getIndexByColNameCI(headers, COL_NAMES.PUB_KEY); // Busca por 'pub_key'
+  const VALIDITY_IDX = getIndexByColNameCI(headers, COL_NAMES.VALIDITY);
+
+  if (ID_IDX <= 0 || PUB_IDX <= 0) {
+    Logger.log("ERRO: Colunas 'ID' ou 'Chave Pública' não encontradas na aba de chaves. Verifique os cabeçalhos.");
+    return {};
+  }
+
+  const keys = keysSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  const keysMap = {};
+
+  for (const row of keys) {
+    const id = normalizeId(row[ID_IDX - 1]);
+    const pub_key = String(row[PUB_IDX - 1] || '').trim();
+    const is_active = VALIDITY_IDX > 0 ? (row[VALIDITY_IDX - 1] === 'Ativas') : true;
+
+    if (getActiveKeysOnly && !is_active) {
+      continue;
+    }
+    
+    keysMap[id] = {
+      pub_key: pub_key,
+      is_active: is_active
+      // Você pode adicionar outros campos relevantes aqui
+    };
+  }
+
+  return keysMap;
 }
 
 
@@ -125,31 +146,48 @@ function getKeysMap(onlyActive = false) {
 // ======================================================================================
 
 /**
- * Revalida TODOS os votos na aba 'Respostas' contra as chaves ativas.
+ * Revalida todos os votos existentes com base nas chaves públicas ativas.
  */
 function revalidateAllVotes() {
+  Logger.log('Iniciando revalidação de votos...');
+  
+  // ✅ 1. Inicialização do Contexto
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const resSheet = ss.getSheetByName(SHEET_NAMES.RESPONSES);
-  if (!resSheet) return;
-
-  const allKeysData = getKeysMap(false); // Mapa completo
-  const lastRow = resSheet.getLastRow();
-  if (lastRow <= 1) return;
-
-  const headers = resSheet.getRange(1, 1, 1, resSheet.getLastColumn()).getValues()[0];
   
-  const ID_IDX = getIndexByColNameCI(headers, COL_NAMES.ID);
-  const PUB_IDX = getIndexByColNameCI(headers, COL_NAMES.PRIV_KEY[0]);
-  
-  let VAL_IDX = getIndexByColNameCI(headers, COL_NAMES.CREDENTIALS);
-  if (VAL_IDX <= 0) VAL_IDX = 4; // Fallback para D (Credenciais)
-
-  if (ID_IDX <= 0 || PUB_IDX <= 0) {
-    Logger.log("ERRO: Colunas 'ID' ou 'Chave Privada' (onde fica a PubKey) não encontradas. Verifique os cabeçalhos.");
-    return;
+  if (!resSheet) {
+    throw new Error(`Aba de respostas '${SHEET_NAMES.RESPONSES}' não encontrada. Abortando revalidação.`);
   }
 
-  const dataRange = resSheet.getRange(2, 1, lastRow - 1, headers.length);
+  const allKeysData = getKeysMap(false); // Mapa completo de chaves públicas ativas
+  const lastRow = resSheet.getLastRow();
+  if (lastRow <= 1) return; // Retorna se só houver cabeçalho
+
+  // ✅ 2. Limpeza dos Cabeçalhos
+  // O problema é resolvido aqui: removemos qualquer espaço invisível ou extra.
+  const headers = resSheet.getRange(1, 1, 1, resSheet.getLastColumn()).getValues()[0];
+  const cleanedHeaders = headers.map(h => String(h).trim()); // O TRICK: Limpa todos os cabeçalhos.
+  
+  // ✅ 3. Busca dos Índices (com os headers limpos)
+  const ID_IDX = getIndexByColNameCI(cleanedHeaders, COL_NAMES.ID_RESPONSE); 
+  const PRIV_KEY_NAMES = COL_NAMES.PRIV_KEY; // Usamos o array completo da constante
+  const PUB_IDX = getIndexByColNameCI(cleanedHeaders, PRIV_KEY_NAMES); 
+  
+  // ✅ 4. Checagem de Erro (Sem duplicatas)
+  if (ID_IDX <= 0 || PUB_IDX <= 0) {
+    Logger.log("ERRO: Colunas 'ID' ou 'Chave Privada' (onde fica a PubKey) não encontradas. Verifique os cabeçalhos.");
+    
+    // Mostra os cabeçalhos limpos
+    Logger.log(`Headers LIDOS e TRATADOS: ${cleanedHeaders.join(', ')}`); 
+    
+    return;
+  }
+  
+  // ✅ 5. Processamento Normal
+  let VAL_IDX = getIndexByColNameCI(cleanedHeaders, COL_NAMES.CREDENTIALS);
+  if (VAL_IDX <= 0) VAL_IDX = 4; // Fallback para D (Credenciais)
+
+  const dataRange = resSheet.getRange(2, 1, lastRow - 1, cleanedHeaders.length);
   const responses = dataRange.getValues();
   const updates = [];
 
@@ -240,14 +278,15 @@ function generateValidationSheet() {
   const headers = resSheet.getRange(1, 1, 1, resSheet.getLastColumn()).getValues()[0];
   const allData = resSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
 
-  // Índices (0-based)
-  const IDX_ID = 1; 
-  const IDX_CRED = 3;
-  const IDX_PUB_KEY = 2; 
-  const IDX_FISCAL = getIndexByColNameCI(headers, COL_NAMES.FISCAL_VOTE) - 1;
-  
+  // Indices (0-based) da aba de RESPOSTAS
+  const IDX_TS_SOURCE = getIndexByColNameCI(headers, 'Carimbo de data/hora') - 1;
+  const IDX_ID_SOURCE = getIndexByColNameCI(headers, COL_NAMES.ID_RESPONSE) - 1; // Coluna 'ID'
+  const IDX_PRIV_KEY_SOURCE = getIndexByColNameCI(headers, COL_NAMES.PRIV_KEY) - 1; // Coluna 'Chave Privada'
+  const IDX_CRED_SOURCE = getIndexByColNameCI(headers, COL_NAMES.CREDENTIALS) - 1; // Coluna 'Credenciais'
+  const IDX_FISCAL = getIndexByColNameCI(headers, COL_NAMES.FISCAL_VOTE) - 1; // Votação para Conselho Fiscal
+
   // Range Executivo (Início após Credenciais, Fim antes de Fiscal)
-  const IDX_EXEC_START = IDX_CRED + 1;
+  const IDX_EXEC_START = IDX_CRED_SOURCE + 1;
   const IDX_EXEC_END = IDX_FISCAL - 1;
 
   if (IDX_FISCAL < 0 || IDX_EXEC_END < IDX_EXEC_START) throw new Error('Configuração de colunas inválida.');
@@ -256,10 +295,10 @@ function generateValidationSheet() {
   const validContentCounter = {}; 
 
   for (const row of allData) {
-    const userId = normalizeId(String(row[IDX_ID] || '').trim());
+    const userId = normalizeId(String(row[IDX_ID_SOURCE] || '').trim());
     if (!userId) continue;
 
-    const credStatus = String(row[IDX_CRED] || '').trim();
+    const credStatus = String(row[IDX_CRED_SOURCE] || '').trim();
     const fiscalRaw = String(row[IDX_FISCAL] || '').trim();
     
     const execVotos = [];
@@ -305,7 +344,7 @@ function generateValidationSheet() {
     results.push([
       row[0], 
       userId, 
-      String(row[IDX_PUB_KEY] || '').trim(), 
+      String(row[IDX_PRIV_KEY_SOURCE] || '').trim(), // Usa o índice correto para 'Chave Privada'
       credStatus,
       finalPreenchimento, 
       contador, 
@@ -567,11 +606,30 @@ function onSpreadsheetEdit(e) {
   }
 }
 
+/**
+ * Fluxo completo de manutenção: revalida todos os votos e regera a apuração.
+ * Ideal para ser chamada MANUALMENTE ou por um gatilho de manutenção (JÁ EXCLUÍDO).
+ */
 function processLastResponse() {
   Logger.log('Iniciando processamento manual...');
-  revalidateAllVotes();
-  generateValidationSheet();
-  generateApuracaoAutomatica();
+  
+  // ✅ Garante que o objeto da planilha esteja no escopo para as funções internas.
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const resSheet = ss.getSheetByName(SHEET_NAMES.RESPONSES); 
+  
+  if (!resSheet) {
+    throw new Error(`Aba de respostas '${SHEET_NAMES.RESPONSES}' não encontrada.`);
+  }
+
+  try {
+    revalidateAllVotes();
+    generateValidationSheet();
+    generateApuracaoAutomatica();
+  } catch (e) {
+    Logger.log(`[ERRO CRÍTICO] Falha durante o processamento: ${e.toString()}`);
+    throw e; // Re-lança para notificação por e-mail
+  }
+  
   Logger.log('Concluído.');
 }
 
@@ -582,8 +640,8 @@ const FLAG_CELL_RANGE = "config_automatica!A1";
 
 /**
  * Função principal a ser chamada pelo gatilho instalável (On Edit).
- * Verifica se a célula de flag foi editada e executa a apuração.
- * * @param {GoogleAppsScript.Events.Sheets.OnEdit} e O evento de edição.
+ * Verifica se a célula de flag (escrita pelo Python) foi editada e executa a apuração.
+ * @param {GoogleAppsScript.Events.Sheets.OnEdit} e O evento de edição.
  */
 function triggerApuracao(e) {
   // Se o evento for nulo ou não for uma edição de célula, ignora.
@@ -596,15 +654,16 @@ function triggerApuracao(e) {
   
   // Verifica se o range editado é a célula A1 da aba config_automatica
   if (sheet.getName() === "config_automatica" && range.getA1Notation() === "A1") {
-    // A célula flag foi editada!
-    Logger.log("Flag detectada! Iniciando generateApuracaoAutomatica...");
+    Logger.log('Flag de apuração detectada. Iniciando revalidação e apuração...');
     
+    // ✅ CHAMADA OTIMIZADA E NA ORDEM CORRETA
     try {
-      // Chama a função que era executada pelo Python
-      generateApuracaoAutomatica(); 
-      Logger.log("Apuração automática concluída com sucesso.");
-    } catch (error) {
-      Logger.log("ERRO CRÍTICO na Apuração: " + error.toString());
+        revalidateAllVotes(); // 1. Revalida todas as chaves
+        generateValidationSheet(); // 2. Regera a validação
+        generateApuracaoAutomatica(); // 3. Regera a apuração final
+    } catch (e) {
+        Logger.log(`[ERRO CRÍTICO no triggerApuracao] Falha na apuração: ${e.toString()}`);
+        // Não é necessário relançar o erro aqui, mas é bom logar.
     }
   }
 }

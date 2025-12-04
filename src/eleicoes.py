@@ -1,5 +1,3 @@
-# export GOOGLE_APPLICATION_CREDENTIALS="./config/eleicoes-eletronicas-agesp-94459f9b1b7c.json"
-
 import argparse
 import csv
 import hmac
@@ -37,12 +35,18 @@ APPS_SCRIPT_FLAG_CELL: Final[str] = 'config_automatica!A1'
 SHEET_NAME_PUB_KEY = 'chaves_publicas'
 RANGE_PUB_KEY = f'{SHEET_NAME_PUB_KEY}!A:F'
 
+# Caminho programático da credencial para o Google Sheets API
+CREDENTIALS_FILE_NAME: Final[str] = 'eleicoes-eletronicas-agesp-94459f9b1b7c.json'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_DIR = os.path.join(BASE_DIR, '..', 'config')
+CREDENTIALS_PATH: Final[str] = os.path.join(CONFIG_DIR, CREDENTIALS_FILE_NAME)
+
 # E-mail
 SMTP_HOST: Final[str] = "smtp.hostinger.com"
 SMTP_PORT: Final[int] = 465
 SMTP_USER: Final[str] = "comissaoeleitoral@agesp.org.br"
 FROM_NAME: Final[str] = "Comissão Eleitoral AGESP"
-SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação"
+SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação – TESTE"
 
 # Google Forms
 BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
@@ -97,6 +101,8 @@ class GoogleSheetsService:
 
     def __init__(self, spreadsheet_id: str):
         self.spreadsheet_id = spreadsheet_id
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = CREDENTIALS_PATH
+        print(f"[DEBUG] Usando credencial: {os.environ['GOOGLE_APPLICATION_CREDENTIALS']}")
         creds, _ = google.auth.default()
         self.service = build("sheets", "v4", credentials=creds)
 
@@ -195,7 +201,7 @@ class GoogleSheetsService:
                         body={'values': [[now_str]]}
                     ).execute()
                     
-                    print(f"[SHEETS] Chave {user_id} invalidada na linha {row_index} (C e F).")
+                    print(f"[SHEETS] Chave {user_id} invalidada na linha {row_index} (C e F) da tabela {SHEET_NAME_PUB_KEY}.")
                     writes_performed = True
                     
                     # 💡 DELAY EXTRA PARA TRATAR DUPLICATAS: Se múltiplas escritas ocorrerem

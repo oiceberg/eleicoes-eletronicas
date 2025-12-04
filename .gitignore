@@ -2,6 +2,7 @@
 *.env
 *.json
 *.toml
+*.7z
 
 !*.csv.example
 !*.json.example
