@@ -10,12 +10,11 @@ const SHEET_NAMES = {
 };
 
 const COL_NAMES = {
-  ID_KEY: 'user_id', 
-  PUB_KEY: 'pub_key', 
-  VALIDITY: 'is_active',  
-  ID_RESPONSE: 'ID',
-  PRIV_KEY: 'Chave Privada',
+  ID: 'ID',
+  PRIV_KEY: ['Chave Privada', 'Chave privada', 'chave privada', 'ChavePrivada'],
+  PUB_KEY: 'Chave Pública',
   CREDENTIALS: 'Credenciais',
+  VALIDITY: 'Validade',
   FISCAL_VOTE: 'Votação para o Conselho Fiscal e de Ética'
 };
 
@@ -89,55 +88,35 @@ function padRows(rows, width) {
 // 3. FUNÇÕES DE SERVIÇO DE CHAVES (KEY_SERVICE)
 // ======================================================================================
 
-// [Localização aproximada: Linhas 94-118 do seu script]
-
 /**
- * Obtém todas as chaves públicas válidas da aba de chaves e as mapeia pelo ID.
- * @param {boolean} getActiveKeysOnly Se true, retorna apenas chaves ativas.
- * @returns {Object} Mapa de chaves {ID: {pub_key, is_active, ...}}.
+ * Retorna mapa { ID -> {pub_key, is_active} } para TODAS as chaves ou apenas ATIVAS.
+ * @param {boolean} onlyActive Se true, retorna apenas chaves ativas.
  */
-function getKeysMap(getActiveKeysOnly) {
+function getKeysMap(onlyActive = false) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const keysSheet = ss.getSheetByName(SHEET_NAMES.KEYS);
-  
-  if (!keysSheet) {
-    throw new Error(`Aba de chaves '${SHEET_NAMES.KEYS}' não encontrada. Abortando.`);
-  }
-  
-  const lastRow = keysSheet.getLastRow();
-  if (lastRow <= 1) return {};
+  const sheet = ss.getSheetByName(SHEET_NAMES.KEYS);
+  if (!sheet) return {};
 
-  const headers = keysSheet.getRange(1, 1, 1, keysSheet.getLastColumn()).getValues()[0];
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return {};
 
-  const ID_IDX = getIndexByColNameCI(headers, COL_NAMES.ID_KEY); // Busca por 'user_id'
-  const PUB_IDX = getIndexByColNameCI(headers, COL_NAMES.PUB_KEY); // Busca por 'pub_key'
-  const VALIDITY_IDX = getIndexByColNameCI(headers, COL_NAMES.VALIDITY);
+  const rows = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  const keyMap = {};
 
-  if (ID_IDX <= 0 || PUB_IDX <= 0) {
-    Logger.log("ERRO: Colunas 'ID' ou 'Chave Pública' não encontradas na aba de chaves. Verifique os cabeçalhos.");
-    return {};
-  }
+  for (const row of rows) {
+    const idKey = normalizeId(row[0]);
+    if (!idKey) continue;
 
-  const keys = keysSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-  const keysMap = {};
-
-  for (const row of keys) {
-    const id = normalizeId(row[ID_IDX - 1]);
-    const pub_key = String(row[PUB_IDX - 1] || '').trim();
-    const is_active = VALIDITY_IDX > 0 ? (row[VALIDITY_IDX - 1] === 'Ativas') : true;
-
-    if (getActiveKeysOnly && !is_active) {
-      continue;
-    }
+    const isActive = row[2] === true || String(row[2]).toLowerCase().trim() === 'true';
     
-    keysMap[id] = {
-      pub_key: pub_key,
-      is_active: is_active
-      // Você pode adicionar outros campos relevantes aqui
-    };
+    if (!onlyActive || isActive) {
+      keyMap[idKey] = {
+        pub_key: String(row[1] || '').trim(),
+        is_active: isActive
+      };
+    }
   }
-
-  return keysMap;
+  return keyMap;
 }
 
 
@@ -146,48 +125,31 @@ function getKeysMap(getActiveKeysOnly) {
 // ======================================================================================
 
 /**
- * Revalida todos os votos existentes com base nas chaves públicas ativas.
+ * Revalida TODOS os votos na aba 'Respostas' contra as chaves ativas.
  */
 function revalidateAllVotes() {
-  Logger.log('Iniciando revalidação de votos...');
-  
-  // ✅ 1. Inicialização do Contexto
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const resSheet = ss.getSheetByName(SHEET_NAMES.RESPONSES);
-  
-  if (!resSheet) {
-    throw new Error(`Aba de respostas '${SHEET_NAMES.RESPONSES}' não encontrada. Abortando revalidação.`);
-  }
+  if (!resSheet) return;
 
-  const allKeysData = getKeysMap(false); // Mapa completo de chaves públicas ativas
+  const allKeysData = getKeysMap(false); // Mapa completo
   const lastRow = resSheet.getLastRow();
-  if (lastRow <= 1) return; // Retorna se só houver cabeçalho
+  if (lastRow <= 1) return;
 
-  // ✅ 2. Limpeza dos Cabeçalhos
-  // O problema é resolvido aqui: removemos qualquer espaço invisível ou extra.
   const headers = resSheet.getRange(1, 1, 1, resSheet.getLastColumn()).getValues()[0];
-  const cleanedHeaders = headers.map(h => String(h).trim()); // O TRICK: Limpa todos os cabeçalhos.
   
-  // ✅ 3. Busca dos Índices (com os headers limpos)
-  const ID_IDX = getIndexByColNameCI(cleanedHeaders, COL_NAMES.ID_RESPONSE); 
-  const PRIV_KEY_NAMES = COL_NAMES.PRIV_KEY; // Usamos o array completo da constante
-  const PUB_IDX = getIndexByColNameCI(cleanedHeaders, PRIV_KEY_NAMES); 
+  const ID_IDX = getIndexByColNameCI(headers, COL_NAMES.ID);
+  const PUB_IDX = getIndexByColNameCI(headers, COL_NAMES.PRIV_KEY[0]);
   
-  // ✅ 4. Checagem de Erro (Sem duplicatas)
-  if (ID_IDX <= 0 || PUB_IDX <= 0) {
-    Logger.log("ERRO: Colunas 'ID' ou 'Chave Privada' (onde fica a PubKey) não encontradas. Verifique os cabeçalhos.");
-    
-    // Mostra os cabeçalhos limpos
-    Logger.log(`Headers LIDOS e TRATADOS: ${cleanedHeaders.join(', ')}`); 
-    
-    return;
-  }
-  
-  // ✅ 5. Processamento Normal
-  let VAL_IDX = getIndexByColNameCI(cleanedHeaders, COL_NAMES.CREDENTIALS);
+  let VAL_IDX = getIndexByColNameCI(headers, COL_NAMES.CREDENTIALS);
   if (VAL_IDX <= 0) VAL_IDX = 4; // Fallback para D (Credenciais)
 
-  const dataRange = resSheet.getRange(2, 1, lastRow - 1, cleanedHeaders.length);
+  if (ID_IDX <= 0 || PUB_IDX <= 0) {
+    Logger.log("ERRO: Colunas 'ID' ou 'Chave Privada' (onde fica a PubKey) não encontradas. Verifique os cabeçalhos.");
+    return;
+  }
+
+  const dataRange = resSheet.getRange(2, 1, lastRow - 1, headers.length);
   const responses = dataRange.getValues();
   const updates = [];
 
@@ -196,12 +158,12 @@ function revalidateAllVotes() {
     const subPub = String(row[PUB_IDX - 1] || '').trim();
     const keyData = allKeysData[subId];
     
-    let status = 'Inválidas - ID Incorreto';
+    let status = 'Inválidas - ID Inválido';
     if (keyData) {
       if (subPub === keyData.pub_key) {
-        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Inativada';
+        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Desativada';
       } else {
-        status = 'Inválidas - Chave Privada Incorreta';
+        status = 'Inválidas - Chave Privada Inválida';
       }
     }
     updates.push([status]);
@@ -224,13 +186,13 @@ function processResponse_({ sheet, row, namedValues }) {
 
     const allKeysData = getKeysMap(false);
     const keyData = allKeysData[userId];
-    let status = 'Inválidas - ID Incorreto';
+    let status = 'Inválidas - ID Inválido';
 
     if (keyData) {
       if (keyData.pub_key === calcPub) {
-        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Inativada';
+        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Desativada';
       } else {
-        status = 'Inválidas - Chave Privada Incorreta';
+        status = 'Inválidas - Chave Privada Inválida';
       }
     }
     writeCellByNameOrFallback(sheet, row, headers, COL_NAMES.CREDENTIALS, 4, status);
@@ -278,15 +240,14 @@ function generateValidationSheet() {
   const headers = resSheet.getRange(1, 1, 1, resSheet.getLastColumn()).getValues()[0];
   const allData = resSheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
 
-  // Indices (0-based) da aba de RESPOSTAS
-  const IDX_TS_SOURCE = getIndexByColNameCI(headers, 'Carimbo de data/hora') - 1;
-  const IDX_ID_SOURCE = getIndexByColNameCI(headers, COL_NAMES.ID_RESPONSE) - 1; // Coluna 'ID'
-  const IDX_PRIV_KEY_SOURCE = getIndexByColNameCI(headers, COL_NAMES.PRIV_KEY) - 1; // Coluna 'Chave Privada'
-  const IDX_CRED_SOURCE = getIndexByColNameCI(headers, COL_NAMES.CREDENTIALS) - 1; // Coluna 'Credenciais'
-  const IDX_FISCAL = getIndexByColNameCI(headers, COL_NAMES.FISCAL_VOTE) - 1; // Votação para Conselho Fiscal
-
+  // Índices (0-based)
+  const IDX_ID = 1; 
+  const IDX_CRED = 3;
+  const IDX_PUB_KEY = 2; 
+  const IDX_FISCAL = getIndexByColNameCI(headers, COL_NAMES.FISCAL_VOTE) - 1;
+  
   // Range Executivo (Início após Credenciais, Fim antes de Fiscal)
-  const IDX_EXEC_START = IDX_CRED_SOURCE + 1;
+  const IDX_EXEC_START = IDX_CRED + 1;
   const IDX_EXEC_END = IDX_FISCAL - 1;
 
   if (IDX_FISCAL < 0 || IDX_EXEC_END < IDX_EXEC_START) throw new Error('Configuração de colunas inválida.');
@@ -295,10 +256,10 @@ function generateValidationSheet() {
   const validContentCounter = {}; 
 
   for (const row of allData) {
-    const userId = normalizeId(String(row[IDX_ID_SOURCE] || '').trim());
+    const userId = normalizeId(String(row[IDX_ID] || '').trim());
     if (!userId) continue;
 
-    const credStatus = String(row[IDX_CRED_SOURCE] || '').trim();
+    const credStatus = String(row[IDX_CRED] || '').trim();
     const fiscalRaw = String(row[IDX_FISCAL] || '').trim();
     
     const execVotos = [];
@@ -344,7 +305,7 @@ function generateValidationSheet() {
     results.push([
       row[0], 
       userId, 
-      String(row[IDX_PRIV_KEY_SOURCE] || '').trim(), // Usa o índice correto para 'Chave Privada'
+      String(row[IDX_PUB_KEY] || '').trim(), 
       credStatus,
       finalPreenchimento, 
       contador, 
@@ -364,11 +325,12 @@ function generateValidationSheet() {
 }
 
 /**
- * Gera a aba 'Apuração' com os resultados de ambos os conselhos.
+ * Gera a aba 'Apuração' com os resultados de ambos os conselhos, incluindo estatísticas.
  */
 function generateApuracaoAutomatica() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const validationSheet = ss.getSheetByName(SHEET_NAMES.VALIDATION);
+    const keysSheet = ss.getSheetByName(SHEET_NAMES.KEYS); 
     
     // Define o status completo de um voto que contém conteúdo válido para pontuação
     const APURACAO_STATUS = 'VÁLIDO - Credenciais Válidas - Voto Válido';
@@ -386,13 +348,46 @@ function generateApuracaoAutomatica() {
         }
     }
     
+    // --- CÁLCULO DAS ESTATÍSTICAS ---
+    let credenciaisAtivas = 0;
+    let votacoesValidas = 0;
+    let nCandidatosExec = N_BORDA; 
+
+    if (keysSheet) {
+        const COL_IS_ACTIVE = 3; 
+        const lastRowKeys = keysSheet.getLastRow();
+        if (lastRowKeys > 1) {
+            const activeFlags = keysSheet.getRange(2, COL_IS_ACTIVE, lastRowKeys - 1, 1).getValues();
+            credenciaisAtivas = activeFlags.flat().filter(flag => String(flag).toUpperCase() === 'TRUE').length;
+        }
+    }
+    
+    if (validationSheet && validationSheet.getLastRow() > 1) {
+        const COL_STATUS_VALIDATION_FULL = 7; 
+        const lastRowValidation = validationSheet.getLastRow();
+        const statusRange = validationSheet.getRange(2, COL_STATUS_VALIDATION_FULL, lastRowValidation - 1, 1);
+        const statuses = statusRange.getValues().flat();
+        votacoesValidas = statuses.filter(status => status === APURACAO_STATUS).length;
+    }
+
+    const MTPCE = credenciaisAtivas * nCandidatosExec;
+    const notaDeCorte = MTPCE * 0.1;
+
+    const statsRowsData = [
+        ['Credenciais Ativas:', credenciaisAtivas],
+        ['Votações Válidas Realizadas:', votacoesValidas],
+        ['Candidatos ao Conselho Executivo:', nCandidatosExec],
+        ['MTPCE:', MTPCE], 
+        ['Nota de Corte:', notaDeCorte] 
+    ];
+    
     // Estas variáveis serão atualizadas com base nos dados reais
     let N_VOTOS_VOTADOS = 0; 
     let N_POSICOES_MOSTRADAS_FINAL = N_BORDA > 0 ? N_BORDA : 3;
     let N_POSICOES_MOSTRADAS = N_POSICOES_MOSTRADAS_FINAL;
     let maxColsFinal = N_POSICOES_MOSTRADAS + 2; 
 
-    // Funções auxiliares simplificada
+    // Funções auxiliares (writeEmpty permanece inalterada)
     const writeEmpty = () => {
         let apSheet = ss.getSheetByName(SHEET_NAMES.TALLY);
         if (!apSheet) apSheet = ss.insertSheet(SHEET_NAMES.TALLY, 0);
@@ -407,8 +402,9 @@ function generateApuracaoAutomatica() {
         ], maxColsFinal);
         
         apSheet.getRange(1, 1, emptyData.length, maxColsFinal).setValues(emptyData);
-        apSheet.getRange('A1').setFontWeight('bold').setFontSize(14).mergeAcross();
-        apSheet.getRange('A4').setFontWeight('bold').setFontSize(14).mergeAcross();
+        // Garante alinhamento esquerdo nos títulos vazios (para transbordamento)
+        apSheet.getRange('A1').setFontWeight('bold').setFontSize(14).setHorizontalAlignment('left'); 
+        apSheet.getRange('A4').setFontWeight('bold').setFontSize(14).setHorizontalAlignment('left'); 
         apSheet.autoResizeColumns(1, maxColsFinal);
     };
 
@@ -416,7 +412,7 @@ function generateApuracaoAutomatica() {
         writeEmpty(); return;
     }
 
-    // Colunas G, H e I (Status Voto, Votos Exec, Votos Fiscal)
+    // Colunas G, H e I
     const COL_STATUS = 6;  
     const lastRow = validationSheet.getLastRow();
     
@@ -424,7 +420,7 @@ function generateApuracaoAutomatica() {
     const dataRangeValidation = validationSheet.getRange(2, COL_STATUS + 1, lastRow - 1, 3); 
     const validationData = dataRangeValidation.getValues();
     
-    // 3. Determinação Dinâmica dos Candidatos (para dimensionamento)
+    // 3. Determinação Dinâmica dos Candidatos
     const execCandidateSet = new Set();
     const fiscalCandidateSet = new Set();
 
@@ -450,7 +446,6 @@ function generateApuracaoAutomatica() {
         N_BORDA = N_VOTOS_VOTADOS;
     }
     
-    // Ajuste final das variáveis de tamanho APÓS N_BORDA SER DEFINIDA
     N_POSICOES_MOSTRADAS_FINAL = N_BORDA;
     N_POSICOES_MOSTRADAS = N_POSICOES_MOSTRADAS_FINAL; 
     maxColsFinal = N_POSICOES_MOSTRADAS + 2; 
@@ -460,7 +455,7 @@ function generateApuracaoAutomatica() {
         return;
     }
 
-    // 4. Inicializar e Processar Estatísticas (Pontuação)
+    // 4. Inicializar e Processar Estatísticas
     const execStats = new Map(); 
     const fiscalStats = new Map(); 
 
@@ -472,9 +467,7 @@ function generateApuracaoAutomatica() {
     }
     
     for (const row of validationData) {
-        const status = String(row[0] || '').trim(); // Coluna G
-        
-        // APENAS VOTOS VÁLIDOS (COM CONTEÚDO) RECEBEM PONTOS/VOTOS
+        const status = String(row[0] || '').trim();
         if (status !== APURACAO_STATUS) { 
             continue; 
         }
@@ -482,26 +475,21 @@ function generateApuracaoAutomatica() {
         const execVotosRaw = String(row[1] || ''); 
         const fiscalVotosRaw = String(row[2] || ''); 
 
-        // Apuração Executivo (Borda)
+        // Apuração Executivo
         const execVotosDedupe = parseVotos(execVotosRaw);
-        
         for (let i = 0; i < execVotosDedupe.length; i++) {
             const cand = execVotosDedupe[i];
-            
             if (!execStats.has(cand)) continue; 
-
             const s = execStats.get(cand);
             const pontosGanhos = N_BORDA - i; 
             s.pontos += pontosGanhos;
-            
             if (i < N_POSICOES_MOSTRADAS_FINAL) {
                 s.posCounts[i] += 1;
             }
         }
         
-        // Apuração Fiscal (Votos)
+        // Apuração Fiscal
         const fiscalVotosDedupe = parseVotos(fiscalVotosRaw);
-        
         for (const cand of fiscalVotosDedupe) {
             if (!fiscalStats.has(cand)) continue; 
             fiscalStats.set(cand, fiscalStats.get(cand) + 1);
@@ -543,11 +531,20 @@ function generateApuracaoAutomatica() {
     // 6. Combinar e Escrever
     const paddedExecTable = padRows(execTableRows, maxColsFinal);
     const paddedFiscalTable = padRows(fiscalTableRows, maxColsFinal);
+
+    // BLOCO ESTATÍSTICAS
+    const statsTitleRowData = ['Estatísticas da Eleição']; 
+    const paddedStatsTable = padRows([
+        statsTitleRowData,
+        ...statsRowsData
+    ], maxColsFinal);
     
     const allResults = [
         ...paddedExecTable,
         Array(maxColsFinal).fill(''), 
-        ...paddedFiscalTable
+        ...paddedFiscalTable,
+        Array(maxColsFinal).fill(''), 
+        ...paddedStatsTable 
     ];
 
     let apuracaoSheet = ss.getSheetByName(SHEET_NAMES.TALLY);
@@ -563,22 +560,46 @@ function generateApuracaoAutomatica() {
     }
     
     // 7. Formatação Final
-    const execTitleRow = 1;
-    const execHeaderRow = execTitleRow + 1;
-    const fiscalTitleRow = paddedExecTable.length + 2;
-    const fiscalHeaderRow = fiscalTitleRow + 1;
     
-    // Títulos Principais
-    apuracaoSheet.getRange(execTitleRow, 1).setFontWeight('bold').setFontSize(14).mergeAcross().setValue('Conselho Executivo (Pontos)');
-    apuracaoSheet.getRange(fiscalTitleRow, 1).setFontWeight('bold').setFontSize(14).mergeAcross().setValue('Conselho Fiscal e de Ética (Votos)');
+    // === ALINHAMENTO GLOBAL ===
+    // Coluna A (1): Esquerda
+    // Colunas B em diante (2+): Centralizado
+    const maxRows = apuracaoSheet.getMaxRows();
+    apuracaoSheet.getRange(1, 1, maxRows, 1).setHorizontalAlignment('left');
+    if (maxColsFinal > 1) {
+        apuracaoSheet.getRange(1, 2, maxRows, maxColsFinal - 1).setHorizontalAlignment('center');
+    }
 
-    // Cabeçalhos de Tabela
-    apuracaoSheet.getRange(execHeaderRow, 1, 1, execHeader.length).setFontWeight('bold').setBackground('#d9ead3'); 
-    apuracaoSheet.getRange(fiscalHeaderRow, 1, 1, fiscalHeader.length).setFontWeight('bold').setBackground('#cfe2f3'); 
+    // Índices de Linha
+    const execTitleRowIdx = 1;
+    const execHeaderRowIdx = 2;
+    const fiscalTitleRowIdx = paddedExecTable.length + 2;
+    const fiscalHeaderRowIdx = fiscalTitleRowIdx + 1;
+    const statsTitleRowIdx = paddedExecTable.length + 1 + paddedFiscalTable.length + 2; 
+    
+    // Formatação dos Títulos de Seção (Fonte Grande, Negrito, Alinhado à Esquerda, PERMITE EXTRAPOLAÇÃO)
+    // Removemos .mergeAcross() e qualquer alinhamento 'center' explícito para permitir o overflow/transbordamento.
+    apuracaoSheet.getRange(execTitleRowIdx, 1).setFontWeight('bold').setFontSize(14);
+    apuracaoSheet.getRange(fiscalTitleRowIdx, 1).setFontWeight('bold').setFontSize('14');
+    apuracaoSheet.getRange(statsTitleRowIdx, 1).setFontWeight('bold').setFontSize(14);
+
+    // Formatação dos Cabeçalhos de Tabela (Fundo Colorido)
+    apuracaoSheet.getRange(execHeaderRowIdx, 1, 1, execHeader.length).setFontWeight('bold').setBackground('#d9ead3'); 
+    apuracaoSheet.getRange(fiscalHeaderRowIdx, 1, 1, fiscalHeader.length).setFontWeight('bold').setBackground('#cfe2f3'); 
+    
+    // Formatação do Corpo das Estatísticas
+    const statsBodyStartRow = statsTitleRowIdx + 1;
+    const statsCount = statsRowsData.length;
+    
+    // Coluna 2 (Valores) das estatísticas: Fundo Cinza
+    apuracaoSheet.getRange(statsBodyStartRow, 2, statsCount, 1).setBackground('#f3f3f3');
+    
+    // Destaque Vermelho para a Nota de Corte
+    apuracaoSheet.getRange(statsBodyStartRow + statsCount - 1, 2).setBackground('#ffdddd').setNumberFormat('0.00'); 
     
     apuracaoSheet.autoResizeColumns(1, apuracaoSheet.getMaxColumns());
 
-    Logger.log(`Aba '${SHEET_NAMES.TALLY}' gerada (Versão Simplificada).`);
+    Logger.log(`Aba '${SHEET_NAMES.TALLY}' gerada (Layout Final: Extrapolação de Título).`);
 }
 
 
@@ -606,30 +627,11 @@ function onSpreadsheetEdit(e) {
   }
 }
 
-/**
- * Fluxo completo de manutenção: revalida todos os votos e regera a apuração.
- * Ideal para ser chamada MANUALMENTE ou por um gatilho de manutenção (JÁ EXCLUÍDO).
- */
 function processLastResponse() {
   Logger.log('Iniciando processamento manual...');
-  
-  // ✅ Garante que o objeto da planilha esteja no escopo para as funções internas.
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const resSheet = ss.getSheetByName(SHEET_NAMES.RESPONSES); 
-  
-  if (!resSheet) {
-    throw new Error(`Aba de respostas '${SHEET_NAMES.RESPONSES}' não encontrada.`);
-  }
-
-  try {
-    revalidateAllVotes();
-    generateValidationSheet();
-    generateApuracaoAutomatica();
-  } catch (e) {
-    Logger.log(`[ERRO CRÍTICO] Falha durante o processamento: ${e.toString()}`);
-    throw e; // Re-lança para notificação por e-mail
-  }
-  
+  revalidateAllVotes();
+  generateValidationSheet();
+  generateApuracaoAutomatica();
   Logger.log('Concluído.');
 }
 
@@ -640,8 +642,8 @@ const FLAG_CELL_RANGE = "config_automatica!A1";
 
 /**
  * Função principal a ser chamada pelo gatilho instalável (On Edit).
- * Verifica se a célula de flag (escrita pelo Python) foi editada e executa a apuração.
- * @param {GoogleAppsScript.Events.Sheets.OnEdit} e O evento de edição.
+ * Verifica se a célula de flag foi editada e executa a apuração.
+ * * @param {GoogleAppsScript.Events.Sheets.OnEdit} e O evento de edição.
  */
 function triggerApuracao(e) {
   // Se o evento for nulo ou não for uma edição de célula, ignora.
@@ -654,16 +656,15 @@ function triggerApuracao(e) {
   
   // Verifica se o range editado é a célula A1 da aba config_automatica
   if (sheet.getName() === "config_automatica" && range.getA1Notation() === "A1") {
-    Logger.log('Flag de apuração detectada. Iniciando revalidação e apuração...');
+    // A célula flag foi editada!
+    Logger.log("Flag detectada! Iniciando generateApuracaoAutomatica...");
     
-    // ✅ CHAMADA OTIMIZADA E NA ORDEM CORRETA
     try {
-        revalidateAllVotes(); // 1. Revalida todas as chaves
-        generateValidationSheet(); // 2. Regera a validação
-        generateApuracaoAutomatica(); // 3. Regera a apuração final
-    } catch (e) {
-        Logger.log(`[ERRO CRÍTICO no triggerApuracao] Falha na apuração: ${e.toString()}`);
-        // Não é necessário relançar o erro aqui, mas é bom logar.
+      // Chama a função que era executada pelo Python
+      generateApuracaoAutomatica(); 
+      Logger.log("Apuração automática concluída com sucesso.");
+    } catch (error) {
+      Logger.log("ERRO CRÍTICO na Apuração: " + error.toString());
     }
   }
 }

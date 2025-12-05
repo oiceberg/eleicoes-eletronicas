@@ -46,10 +46,14 @@ SMTP_HOST: Final[str] = "smtp.hostinger.com"
 SMTP_PORT: Final[int] = 465
 SMTP_USER: Final[str] = "comissaoeleitoral@agesp.org.br"
 FROM_NAME: Final[str] = "Comissão Eleitoral AGESP"
-SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação – TESTE"
+SUBJECT: Final[str]   = "TESTE – Eleições AGESP 2025 – Suas credenciais para votação"
 
 # Google Forms
 BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
+
+# Datas da Eleição
+DATA_INICIO_VOTACAO: Final[str] = "09/12/2025" 
+DATA_FIM_VOTACAO: Final[str] = "10/12/2025"
 
 # Carrega Variáveis de Ambiente (Segredos)
 try:
@@ -151,7 +155,7 @@ class GoogleSheetsService:
     def invalidate_old_key(self, user_id: str) -> bool:
         """
         Busca e invalida (is_active=FALSE) a chave antiga do usuário, se ativa.
-        IMPORTANTE: Itera sobre TODAS as linhas para inativar CHAVES DUPLICADAS ATIVAS.
+        IMPORTANTE: Itera sobre TODAS as linhas para desativar CHAVES DUPLICADAS ATIVAS.
         Retorna True se houve PELO MENOS UMA escrita.
         """
         try:
@@ -176,9 +180,9 @@ class GoogleSheetsService:
             
             if current_id == user_id:
                 
-                # Check Crítico: Se JÁ está inativa, apenas avisa e segue
+                # Check Crítico: Se JÁ está desativada, apenas avisa e segue
                 if is_active_str == 'FALSE':
-                    print(f"[PULAR] Chave antiga {user_id} (linha {row_index}) já inativa.")
+                    print(f"[PULAR] Chave antiga {user_id} (linha {row_index}) já desativada.")
                     continue 
 
                 # 3. Se encontrada e ATIVA, realiza a invalidação (Duas chamadas API Write)
@@ -201,7 +205,7 @@ class GoogleSheetsService:
                         body={'values': [[now_str]]}
                     ).execute()
                     
-                    print(f"[SHEETS] Chave {user_id} invalidada na linha {row_index} (C e F) da tabela {SHEET_NAME_PUB_KEY}.")
+                    print(f"[SHEETS] Chave {user_id} desativada na linha {row_index} (C e F) da tabela {SHEET_NAME_PUB_KEY}.")
                     writes_performed = True
                     
                     # 💡 DELAY EXTRA PARA TRATAR DUPLICATAS: Se múltiplas escritas ocorrerem
@@ -326,14 +330,34 @@ def send_email_consolidated(eleitor: Eleitor, keys: KeyPair, production: bool) -
     ano = datetime.now().year
     html_tmpl = load_template_html()
     
-    html_content = html_tmpl.format(
-        nome=eleitor.nome, user_id=keys.user_id, priv_key=keys.priv_key,
-        pub_key=keys.pub_key, link_votacao=BASE_FORM_URL, ano=ano, from_name=FROM_NAME
-    )
+    # Preenche o template com TODAS as variáveis necessárias
+    try:
+        html_content = html_tmpl.format(
+            nome=eleitor.nome.split()[0], # Apenas o primeiro nome para o template
+            user_id=keys.user_id, 
+            
+            # Mapeia 'priv_key' para 'chave_privada' e 'priv_key' para o template
+            priv_key=keys.priv_key,       
+            chave_privada=keys.priv_key,  
+            
+            pub_key=keys.pub_key, 
+            link_votacao=BASE_FORM_URL, 
+            ano=ano, 
+            from_name=FROM_NAME,
+            
+            # ➡️ MUDANÇA MÍNIMA AQUI: INSERINDO AS DATAS
+            data_inicio_votacao=DATA_INICIO_VOTACAO,
+            data_fim_votacao=DATA_FIM_VOTACAO
+        )
+    except KeyError as e:
+        print(f"[ERRO TEMPLATE] Variável faltando no template HTML: {e}")
+        return False
     
+    # Conteúdo de texto simples
     text_content = (
         f"Olá {eleitor.nome},\n\n"
         f"Seguem seus dados para a Eleição AGESP {ano}:\n\n"
+        f"Período: {DATA_INICIO_VOTACAO} a {DATA_FIM_VOTACAO}\n"
         f"ID de Validação: {keys.user_id}\n"
         f"Chave Privada  : {keys.priv_key}\n"
         f"Chave Pública  : {keys.pub_key}\n"
