@@ -1,3 +1,43 @@
+/**
+ * ==============================================================================
+ * SCRIPT CORE: Planilha.js
+ * ==============================================================================
+ * * Script Name: Planilha.js
+ * Version: 1.0 (Com Validação e Apuração)
+ * Date: 2025-12-06
+ * * Authors:
+ * - Leandro Pires Salvador (leandrosalvador@protonmail.com, leandrosalvador@gmail.com)
+ * - Tiago Barreiros de Freitas (tiago4680@gmail.com)
+ * * GitHub Project: https://github.com/oiceberg/eleicoes-eletronicas/
+ * * Description:
+ * Motor de Validação Criptográfica e Apuração do Sistema de Eleições Eletrônicas da AGESP.
+ * O script atua como o Core do sistema no ambiente da nuvem, garantindo:
+ * 1. Autenticidade do voto recalculando o **HMAC-SHA256**.
+ * 2. Limpeza Criptográfica (substituição imediata da Chave Privada pela Chave Pública).
+ * 3. Unicidade do voto (regra: o primeiro voto válido é o único contabilizado).
+ * 4. Apuração em tempo real (Cálculo do Método de Borda e estatísticas).
+ * * ==============================================================================
+ * Gatilhos (Triggers) Configurados:
+ * ==============================================================================
+ * * * 1. onFormSubmit: Processa cada voto logo após a submissão, atualizando a
+ * aba 'validacao_automatica' e gerando a 'Apuração'.
+ * * 2. triggerApuracao: Acionado pelo gatilho 'Ao editar' na célula de flag
+ * (config_automatica!A1). Este é o mecanismo de comunicação entre o Backend (Python)
+ * e o Core (GAS), acionando o recálculo imediato da apuração.
+ * * ==============================================================================
+ * Variáveis de Configuração (Script Properties):
+ * ==============================================================================
+ * * * - MK: String (A Chave Mestra usada para recalcular o HMAC e validar as
+ * credenciais. Deve ser idêntica à MASTER_KEY do env.toml do Python).
+ * * - QTD_CANDIDATOS_EXEC: Number (Usado para definir o N_BORDA, o número máximo
+ * de posições que recebem pontuação no Método de Borda, equivale ao número de
+ * candidatos ao Conselho Executivo).
+ * * ==============================================================================
+ * TODO:
+ * * - [Acompanhamento] Monitorar performance da validação com grande volume de votos.
+ * * ==============================================================================
+ */
+
 // ======================================================================================
 // 1. CONFIGURAÇÃO E CONSTANTES
 // ======================================================================================

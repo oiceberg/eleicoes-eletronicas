@@ -141,7 +141,6 @@ class GoogleSheetsService:
     def __init__(self, spreadsheet_id: str):
         self.spreadsheet_id = spreadsheet_id
         os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = CREDENTIALS_PATH
-        print(f"[DEBUG] Usando credencial: {os.environ['GOOGLE_APPLICATION_CREDENTIALS']}")
         creds, _ = google.auth.default()
         self.service = build("sheets", "v4", credentials=creds)
 
@@ -532,7 +531,7 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
     html_tmpl = load_template_html() # Usa a função auxiliar
     
     template_data = {
-        'nome': eleitor.nome.split()[0],
+        'nome': eleitor.nome,
         'user_id': keys.user_id,
         'priv_key': keys.priv_key,      
         'pub_key': keys.pub_key, 
@@ -547,12 +546,24 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
     try:
         html_content = html_tmpl.format(**template_data)
     except KeyError as e:
-        print(f"[ERRO TEMPLATE] Variável faltando no template HTML: {e}")
-        log_event('ERRO FATAL', eleitor.email, keys.user_id, f"KeyError no template: {e}", is_production)
+        print(f"[ERRO FATAL] Variável faltando no template HTML: {e}")
+        log_event(
+            level='ERRO FATAL', 
+            email=eleitor.email, 
+            user_id=keys.user_id, 
+            message=f"KeyError no template: {e}", 
+            is_production=is_production
+        )
         return False
     except Exception as e:
-         print(f"[ERRO GERAL] Erro desconhecido na formatação do template: {e}")
-         log_event('ERRO FATAL', eleitor.email, keys.user_id, f"Erro na formatação do template: {e}", is_production)
+         print(f"[ERRO FATAL] Erro desconhecido na formatação do template: {e}")
+         log_event(
+            level='ERRO FATAL',
+            email=eleitor.email,
+            user_id=keys.user_id,
+            message=f"Erro na formatação do template: {e}",
+            is_production=is_production
+        )
          return False
     
     # Conteúdo de texto simples (Formato detalhado desejado pelo usuário)
@@ -585,7 +596,7 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
         print("\n" + "="*60)
         print(f"🧪 [TESTE] E-MAIL SIMULADO PARA: {eleitor.email}")
         print("-" * 60)
-        print(f"Assunto: {SUBJECT}")
+        print(f"ASSUNTO: {SUBJECT}")
         print("\nCONTEÚDO (Visualização):")
         # Imprime o conteúdo de texto formatado
         print("    " + "\n    ".join(text_content.split('\n'))) 
@@ -627,7 +638,13 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
                 log_level = 'ERRO CRÍTICO'
 
     # Registro de Log e feedback no terminal
-    log_event(log_level, eleitor.email, keys.user_id, log_msg, is_production)
+    log_event(
+        level=log_level,
+        email=eleitor.email,
+        user_id=keys.user_id,
+        message=log_msg,
+        is_production=is_production
+    )
     if success and log_level == 'INFO': 
         print(f"[SUCESSO] {log_msg}")
     elif not success and log_level != 'INFO':
@@ -680,14 +697,26 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
         ])
         time.sleep(2.0) # Delay pós-escrita
 
-        log_event('INFO', eleitor.email, keys.user_id, 'Google Sheets atualizado.', production)
+        log_event(
+            level='INFO', 
+            email=eleitor.email, 
+            user_id=keys.user_id, 
+            message='Google Sheets atualizado.', 
+            is_production=production
+        )
 
         # 💡 PASSO CRÍTICO: CHAMA O APPS SCRIPT PARA RECALCULAR TUDO
         sheet_service.write_flag_to_cell(APPS_SCRIPT_FLAG_CELL, now_str)
         print(f"[API SCRIPT] Função generateApuracaoAutomatica acionada via Sheets API (Flag).")
 
     except Exception as e:
-        log_event('ERRO', eleitor.email, keys.user_id, f'Falha crítica no Sheets API: {e}', production)
+        log_event(
+            level='ERRO',
+            email=eleitor.email,
+            user_id=keys.user_id,
+            message=f'Falha crítica no Sheets API: {e}',
+            is_production=production
+        )
         print(f"[ERRO CRÍTICO] Falha ao atualizar Google Sheets para {eleitor.email}: {e}")
         return # Aborta registro local se Sheets falhou
 
@@ -711,28 +740,52 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
     save_enviados_atomically(registros_limpos)
     print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
 
-
 def main():
+    # 0. Configuração de Argumentos
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
     parser.add_argument('destinatario', nargs='?', default='TODOS', help="E-mail do eleitor (ou 'TODOS') para processamento.")
-    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave).")
+    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
     args = parser.parse_args()
 
-    # 1. Executa Auditoria de Arquivos (Para o vídeo/registro)
+    # 1. Registro do Tempo de Início
+    start_time = datetime.now()
+    print("="*50)
+    print(f"[{start_time.strftime(DATE_FORMAT)}] ⏱️ INÍCIO da execução do script.")
+    print("="*50)
+
+    log_event(
+        level="INFO", 
+        email="", 
+        user_id="SYSTEM", 
+        message=f"INÍCIO da execução do script. Modo Produção: {args.production}", 
+        is_production=args.production
+    )
+
+    # 2. Executa Auditoria de Arquivos (Para o vídeo/registro)
     generate_audit_hashes()
-    
-    # 2. Aviso de Modo de Execução
-    print("\n" + "="*50)
+
+    # 3. Alertas de Segurança e Confirmação
     if args.production:
-        print("🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
+        print("\n🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
         print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
         time.sleep(5)
     else:
-        print("🧪 MODO DE TESTE (Simulação de E-mail)")
-        print("Planilha será atualizada, e-mails apenas exibidos.")
-    print("="*50 + "\n")
+        print("\n🧪 MODO DE TESTE (Simulação de E-mail) 🧪")
+        print("Planilha será atualizada, e-mails NÃO serão enviados (apenas simulados).")
 
+    if args.resend:
+        print("\n⚠️ ALERTA: MODO REENVIO FORÇADO (--resend) ATIVADO! ⚠️")
+        print("Todas as chaves serão REGERADAS. As credenciais antigas serão INVALIDADAS.")
+        
+        # Confirmação explícita no terminal (Segurança máxima)
+        confirmation = input("Tem certeza que deseja continuar? (digite 'SIM' para prosseguir): ")
+        if confirmation.upper() != 'SIM':
+            print("\n[CANCELADO] Execução interrompida pelo usuário. Nenhuma chave foi alterada.")
+            return
+        
+    print("\n" + "="*50 + "\n")
+    
     try:
         sheet_service = GoogleSheetsService(SPREADSHEET_ID)
         eleitores = load_eleitores()
@@ -744,12 +797,11 @@ def main():
         targets = []
         if args.destinatario.upper() == 'TODOS':
             targets = eleitores
-            args.resend = True # No modo TODOS, sempre gera nova chave
         else:
             found = next((e for e in eleitores if e.email == args.destinatario), None)
             if found:
                 targets = [found]
-                args.resend = True # Alvo único implica intenção de envio/reenvio
+                args.resend = True 
             else:
                 print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
                 return
@@ -761,8 +813,48 @@ def main():
 
     except KeyboardInterrupt:
         print("\n[INTERRUPÇÃO] Processamento cancelado pelo usuário.")
+        log_event(
+            level="WARNING", 
+            email="", 
+            user_id="SYSTEM", 
+            message="Processamento interrompido pelo usuário (Ctrl+C).", 
+            is_production=args.production
+        )
+    
     except Exception as e:
         print(f"\n[ERRO FATAL] Ocorreu um erro não tratado: {e}")
+        log_event(
+            level="ERROR", 
+            email="", 
+            user_id="SYSTEM", 
+            message=f"ERRO FATAL: {e}", 
+            is_production=args.production
+        )
+    
+    finally:
+        # 4. Registro do Tempo de Fim e Duração
+        end_time = datetime.now()
+        duration = end_time - start_time
+        
+        total_seconds = duration.total_seconds()
+        hours = int(total_seconds // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        seconds = total_seconds % 60
+        
+        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:05.2f}"
+        
+        print("\n" + "="*50)
+        print(f"[{end_time.strftime(DATE_FORMAT)}] 🏁 FIM da execução do script.")
+        print(f"⏳ DURAÇÃO TOTAL: {duration_str}")
+        print("="*50)
+
+        log_event(
+            level="INFO", 
+            email="", 
+            user_id="SYSTEM", 
+            message=f"FIM da execução do script. Duração: {duration_str}", 
+            is_production=args.production
+        )
 
 if __name__ == "__main__":
     main()
