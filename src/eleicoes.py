@@ -1,13 +1,44 @@
+"""
+Script Name: eleicoes.py
+Version: 1.0 (Com Auditoria e Validação)
+Date: 2025-12-06
+Authors:
+    - Leandro Pires Salvador (leandrosalvador@protonmail.com, leandrosalvador@gmail.com)
+    - Tiago Barreiros de Freitas (tiago4680@gmail.com)
+Description:
+    Sistema de processamento de credenciais e disparo de e-mails para as eleições eletrônicas da AGESP.
+    O script gera chaves criptográficas (ID, Chave Privada e Chave Pública), as registra
+    na planilha 'Credenciais' do Google Sheets e envia as credenciais por e-mail aos eleitores.
+    Possui modo de TESTE (simulação) e modo de PRODUÇÃO (envio real).
+
+GitHub Project: https://github.com/oiceberg/eleicoes-eletronicas/
+
+Changelog:
+- 1.0: Lançamento com funcionalidade completa, incluindo:
+    - Validação de formato de e-mail (fail-fast).
+    - Geração de hashes SHA-256 de arquivos críticos para auditoria em vídeo.
+    - Registro de Meta Hash do arquivo de auditoria (audit_hashes.csv).
+    - Invalidação automática de chaves antigas no Google Sheets.
+    - Disparo de e-mails via SMTP seguro.
+    - Suporte a envio individual (reenvio) ou em massa.
+
+TODO:
+- [Acompanhamento] Monitorar performance da API do Sheets com grande volume de dados.
+"""
+
 import argparse
 import csv
 import hmac
 import os
+import sys
 import secrets
 import string
 import time
 import tomllib
 import smtplib
 import ssl
+import hashlib
+import re
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from email.message import EmailMessage
@@ -27,16 +58,20 @@ DATE_FORMAT: Final[str]        = '%d/%m/%Y %H:%M:%S'
 ELEITORES_FILEPATH: Final[str] = 'data/eleitores.csv'
 ENVIADOS_FILEPATH: Final[str]  = 'data/enviados.csv'
 LOG_FILEPATH: Final[str]       = 'data/eleicoes.log.csv'
+AUDIT_HASHES_FILEPATH: Final[str] = 'data/audit_hashes.csv'
 TEMPLATE_FILEPATH: Final[str]  = 'templates/template.html'
+GS_FORMULARIO_FILEPATH: Final[str] = 'gs/Formulario.js'
+GS_PLANILHA_FILEPATH: Final[str]   = 'gs/Planilha.js'
+ENV_TOML_FILEPATH: Final[str]      = 'config/env.toml'
 
 # Google Sheets
 SPREADSHEET_ID: Final[str] = '1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw'
 APPS_SCRIPT_FLAG_CELL: Final[str] = 'config_automatica!A1'
-SHEET_NAME_PUB_KEY = 'chaves_publicas'
+SHEET_NAME_PUB_KEY = 'Credenciais'
 RANGE_PUB_KEY = f'{SHEET_NAME_PUB_KEY}!A:F'
 
 # Caminho programático da credencial para o Google Sheets API
-CREDENTIALS_FILE_NAME: Final[str] = 'eleicoes-eletronicas-agesp-94459f9b1b7c.json'
+CREDENTIALS_FILE_NAME: Final[str] = 'credentials.json'
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_DIR = os.path.join(BASE_DIR, '..', 'config')
 CREDENTIALS_PATH: Final[str] = os.path.join(CONFIG_DIR, CREDENTIALS_FILE_NAME)
@@ -125,7 +160,7 @@ class GoogleSheetsService:
             raise
 
     def append_row(self, sheet_name: str, values: list) -> None:
-        """Insere uma nova linha na planilha. Operação SEMPRE executada."""
+        """Insere uma nova linha na planilha."""
         try:
             self.service.spreadsheets().values().append(
                 spreadsheetId=self.spreadsheet_id,
@@ -138,7 +173,6 @@ class GoogleSheetsService:
             raise Exception(f"Falha na escrita da linha no Sheets: {e}")
 
     def update_cell(self, range_name: str, value: Any) -> None:
-        # Mantendo para compatibilidade, embora seja melhor usar o invalidate_old_key
         body = {'values': [[value]]}
         (
             self.service.spreadsheets()
@@ -155,7 +189,6 @@ class GoogleSheetsService:
     def invalidate_old_key(self, user_id: str) -> bool:
         """
         Busca e invalida (is_active=FALSE) a chave antiga do usuário, se ativa.
-        IMPORTANTE: Itera sobre TODAS as linhas para desativar CHAVES DUPLICADAS ATIVAS.
         Retorna True se houve PELO MENOS UMA escrita.
         """
         try:
@@ -213,33 +246,178 @@ class GoogleSheetsService:
                     
                 except Exception as e:
                     print(f"[ERRO API] Falha ao invalidar chave {user_id} na linha {row_index}: {e}")
-                    # Não retorna False, pois pode haver outras linhas para tentar invalidar
                     continue
         
         return writes_performed
 
 
-# --- 4. PERSISTÊNCIA LOCAL (CSV) ---
+# --- 4. FUNÇÕES DE AUDITORIA E VALIDAÇÃO ---
+
+def generate_hash_of_file(filepath: str) -> Optional[str]:
+    """Calcula o hash SHA-256 de um arquivo em disco."""
+    try:
+        with open(filepath, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"[ERRO HASH] Falha ao calcular hash de {filepath}: {e}")
+        return None
+
+def generate_audit_hashes() -> None:
+    """
+    Gera hashes SHA-256 dos arquivos críticos, imprime na tela e salva em CSV para auditoria.
+    Calcula e imprime o 'meta hash' do arquivo de auditoria DEPOIS de salvá-lo.
+    """
+
+    # 1. Lista em ordem lógica/cronológica de importância no processo de auditoria
+    files_to_hash = [
+        os.path.abspath(__file__), # 1. O script principal
+        ENV_TOML_FILEPATH,         # 2. Configuração de segredos
+        CREDENTIALS_PATH,          # 3. JSON de credenciais
+        ELEITORES_FILEPATH,        # 4. Dados de entrada (eleitores)
+        TEMPLATE_FILEPATH,         # 5. Template de e-mail
+        GS_FORMULARIO_FILEPATH,    # 6. Script do Google Form
+        GS_PLANILHA_FILEPATH,      # 7. Script do Google Sheets
+    ]
+    
+    audit_data = []
+    
+    # 2. Calcula hashes de todos os arquivos de entrada
+    for filepath in files_to_hash:
+        file_hash = generate_hash_of_file(filepath)
+        
+        if file_hash:
+            # Lógica para definir o nome de exibição (caminho relativo com '/')
+            if filepath == os.path.abspath(__file__):
+                display_name = 'src/eleicoes.py' 
+            elif filepath == CREDENTIALS_PATH:
+                display_name = 'config/' + os.path.basename(CREDENTIALS_PATH)
+            else:
+                display_name = filepath.replace(os.sep, '/')
+                
+            audit_data.append({
+                "timestamp": datetime.now().strftime(DATE_FORMAT),
+                "arquivo": display_name,
+                "hash_sha256": file_hash
+            })
+        else:
+            print(f"[AVISO] Arquivo não encontrado para auditoria: {filepath.replace(os.sep, '/')} -> Hash não gerado.")
+
+    # 3. Salva em CSV (audit_hashes.csv)
+    file_exists = os.path.exists(AUDIT_HASHES_FILEPATH)
+    try:
+        with open(AUDIT_HASHES_FILEPATH, mode='a', newline='', encoding=ENCODING) as f:
+            writer = csv.writer(f, delimiter=DELIMITER)
+            
+            # Escreve cabeçalho se o arquivo não existe ou está vazio
+            if not file_exists or os.path.getsize(AUDIT_HASHES_FILEPATH) == 0:
+                writer.writerow(['timestamp', 'arquivo', 'hash_sha256'])
+            
+            for entry in audit_data:
+                writer.writerow([entry['timestamp'], entry['arquivo'], entry['hash_sha256']])
+                
+    except Exception as e:
+        print(f"[ERRO] Não foi possível salvar arquivo de auditoria '{AUDIT_HASHES_FILEPATH}': {e}")
+        # Aborta a execução para não prosseguir com uma auditoria incompleta
+        sys.exit(1)
+
+    # 4. Calcula e adiciona o Meta Hash (agora que o arquivo está SALVO)
+    meta_hash = generate_hash_of_file(AUDIT_HASHES_FILEPATH)
+    
+    if meta_hash:
+        meta_file_name = AUDIT_HASHES_FILEPATH.replace(os.sep, '/')
+        # Adiciona a entrada do Meta Hash no final para ser impresso
+        audit_data.append({
+            "timestamp": datetime.now().strftime(DATE_FORMAT),
+            "arquivo": meta_file_name,
+            "hash_sha256": meta_hash
+        })
+    
+    # 5. Imprime o Relatório Final
+    print("\n" + "="*92)
+    print("🔐 Relatório de Integridade Criptográfica (SHA-256) 🔐".center(92))
+    print("-" * 92)
+    
+    # Imprime todos os hashes, exceto o último (Meta Hash)
+    if audit_data:
+        # Imprime todos os itens, exceto o último (o Meta Hash)
+        for entry in audit_data[:-1]:
+            print(f"[{entry['arquivo'].ljust(25)}] {entry['hash_sha256']}")
+        
+        # Imprime a linha de separação
+        print("-" * 92)
+
+        # Imprime a mensagem de salvamento
+        print("📝 Hashes de auditoria salvos em 'data/audit_hashes.csv'")
+
+        # Imprime o Meta Hash (último item da lista)
+        meta_entry = audit_data[-1]
+        print(f"[{meta_entry['arquivo'].ljust(25)}] {meta_entry['hash_sha256']}")
+    else:
+        print("Nenhum arquivo auditado com sucesso.".center(92))
+        
+    print("=" * 92)
+
+def is_valid_email(email: str) -> bool:
+    """Valida formato básico de e-mail para evitar rejeição SMTP."""
+    email = email.strip()
+    if not email: return False
+    # Evita erro comum de ponto final
+    if email.endswith('.'): return False
+    # Regex padrão simples
+    pattern = r'^[\w\.-]+@[\w\.-]+\.\w+$'
+    return re.match(pattern, email) is not None
+
+
+# --- 5. PERSISTÊNCIA LOCAL (CSV) ---
 
 def load_eleitores() -> List[Eleitor]:
     """
-    Carrega a lista de eleitores do CSV.
+    Carrega a lista de eleitores do CSV e valida o formato dos e-mails.
+    O script será ABORTADO imediatamente se for encontrado qualquer e-mail inválido.
     """
-    if not os.path.exists(ELEITORES_FILEPATH): return []
+    if not os.path.exists(ELEITORES_FILEPATH): 
+        return []
+    
+    eleitores_validos = []
+    erros_encontrados = [] # Lista para coletar todos os erros
+    
     try:
         with open(ELEITORES_FILEPATH, mode='r', encoding=ENCODING) as f:
             reader = csv.reader(f, delimiter=DELIMITER)
             next(reader, None) # Pula o cabeçalho
-            return [
-                Eleitor(
-                    nome=r[0].strip(),
-                    email=r[1].strip()
-                )
-                for r in reader if len(r) >= 2
-            ]
+            
+            for line_num, r in enumerate(reader, start=2):
+                if len(r) < 2: continue # Pula linhas incompletas
+                
+                nome = r[0].strip()
+                email = r[1].strip()
+                
+                if is_valid_email(email):
+                    eleitores_validos.append(Eleitor(nome=nome, email=email))
+                else:
+                    # Coleta o erro em vez de apenas alertar
+                    erros_encontrados.append(f"Linha {line_num}: '{email}' (Eleitor: {nome})")
+                    
     except Exception as e:
         print(f"[ERRO] Falha ao ler eleitores: {e}")
-        return []
+        # Aborta em caso de erro de I/O
+        raise SystemExit(1)
+    
+    # 🚨 PONTO DE ABORTO: Se encontrou erros, interrompe a execução
+    if erros_encontrados:
+        print("\n" + "="*80)
+        print("🚨 ERRO CRÍTICO: E-MAILS INVÁLIDOS ENCONTRADOS NO CSV! 🚨")
+        print("Corrija os e-mails listados abaixo antes de continuar.")
+        print("-" * 80)
+        for erro in erros_encontrados:
+            print(f"  {erro}")
+        print("="*80)
+        # O valor 1 é uma convenção para indicar que o script terminou com falha
+        raise SystemExit(1) 
+        
+    return eleitores_validos
 
 def load_enviados() -> List[RegistroEnvio]:
     """Carrega registros de envio (chaves) do CSV local."""
@@ -252,8 +430,8 @@ def load_enviados() -> List[RegistroEnvio]:
             for row in reader:
                 if len(row) < 8: continue
                 registros.append(RegistroEnvio(
-                    timestamp=row[0], 
-                    email=row[1], 
+                    timestamp=row[0],
+                    email=row[1],
                     user_id=row[2],
                     pub_key=row[3],
                     generation=int(row[4]),
@@ -263,17 +441,21 @@ def load_enviados() -> List[RegistroEnvio]:
                 ))
     except Exception as e:
         print(f"[ERRO] Falha ao ler enviados: {e}")
+        return []
     return registros
 
 def log_event(level: str, email: str, user_id: str, message: str, is_production: bool) -> None:
     """Registra evento no log."""
+    
+    timestamp_str = datetime.now().strftime(DATE_FORMAT) 
+    
     entry = [
-        datetime.now().isoformat(timespec='seconds'), 
+        timestamp_str, # Formato: DD/MM/AAAA HH:MM:SS
         str(is_production),
         level,
         email,
         user_id,
-        message.replace(DELIMITER, ' | ')
+        message.replace(DELIMITER, ' | ') # Evita quebra de coluna
     ]
     file_exists = os.path.exists(LOG_FILEPATH)
     try:
@@ -286,78 +468,98 @@ def log_event(level: str, email: str, user_id: str, message: str, is_production:
         print(f"[ERRO CRÍTICO] Falha no log: {e}")
 
 def save_enviados_atomically(registros: List[RegistroEnvio]) -> None:
-    """Salva o CSV de forma atômica para evitar corrupção."""
-    tmp_path = f"{ENVIADOS_FILEPATH}.tmp"
+    """Salva a lista completa de registros de forma atômica."""
+    temp_filepath = ENVIADOS_FILEPATH + '.tmp'
     try:
-        with open(tmp_path, mode='w', newline='', encoding=ENCODING) as f:
+        with open(temp_filepath, mode='w', newline='', encoding=ENCODING) as f:
             writer = csv.writer(f, delimiter=DELIMITER)
-            writer.writerow(RegistroEnvio.__annotations__.keys())
+            writer.writerow(RegistroEnvio.__annotations__.keys()) # Escreve cabeçalho
             for reg in registros:
                 writer.writerow(list(asdict(reg).values()))
-        os.replace(tmp_path, ENVIADOS_FILEPATH)
+        
+        os.replace(temp_filepath, ENVIADOS_FILEPATH)
     except Exception as e:
-        if os.path.exists(tmp_path): os.remove(tmp_path)
-        raise Exception(f"Falha ao salvar CSV: {e}")
+        print(f"[ERRO CRÍTICO] Falha ao salvar registros de envio: {e}")
 
 
-# --- 5. LÓGICA DE DOMÍNIO ---
+# --- 6. GERAÇÃO DE CHAVES E ENCRIPTAÇÃO ---
 
 def generate_key_pair() -> KeyPair:
-    """Gera um novo user_id e um par de chaves (priv_key, pub_key)."""
+    """Gera um user_id e um par de chaves (priv_key, pub_key)."""
     
     # 1. Geração do ID numérico 6 dígitos (100000-999999)
     user_id = str(secrets.randbelow(900000) + 100000)
 
-    master_key = ENV.get('secrets', {}).get('master_key')
-    if not master_key: raise RuntimeError("master_key ausente no env.toml")
+    # 2. Carregamento da Master Key
+    master_key = ENV.get('MASTER_KEY')
+    if not master_key: 
+        raise RuntimeError("MASTER_KEY ausente na raiz do env.toml")
 
-    # 2. Chave Privada: 12 letras maiúsculas
-    priv_key = ''.join(secrets.choice(string.ascii_uppercase) for _ in range(12))
-    # 3. Chave Pública: HMAC-SHA256
+    # 3. Chave Privada: 12 letras maiúsculas
+    priv_key = ''.join(secrets.choice(string.ascii_uppercase) for _ in range(12)) 
+    
+    # 4. Chave Pública: HMAC-SHA256
     pub_key = hmac.new(master_key.encode(), priv_key.encode(), 'sha256').hexdigest()
     
-    return KeyPair(user_id, priv_key, pub_key)
+    return KeyPair(user_id=user_id, priv_key=priv_key, pub_key=pub_key)
+
+
+# --- 7. COMUNICAÇÃO (SMTP) ---
 
 def load_template_html() -> str:
+    """Carrega o conteúdo do template HTML para e-mail."""
+    # Usando a constante ENCODING do script ('utf-8-sig')
     if os.path.exists(TEMPLATE_FILEPATH):
-        with open(TEMPLATE_FILEPATH, 'r', encoding='utf-8') as f: return f.read()
-    return "<html><body><p>Olá {nome},</p><p>ID: {user_id}</p><p>Senha: {priv_key}</p></body></html>"
-
-def send_email_consolidated(eleitor: Eleitor, keys: KeyPair, production: bool) -> bool:
-    """Constrói, envia (ou simula) o e-mail e registra o log."""
+        with open(TEMPLATE_FILEPATH, 'r', encoding=ENCODING) as f: 
+            return f.read()
     
+    # Template de fallback seguro (para o caso de o arquivo não existir)
+    return (
+        "<html><body>"
+        "<p>Olá {nome},</p>"
+        "<p>ID de Validação: {user_id}</p>"
+        "<p>Chave Privada: {chave_privada}</p>"
+        "</body></html>"
+    )
+
+def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
+    """
+    Constrói, envia (ou simula) o e-mail e registra o log, 
+    mantendo a formatação detalhada de simulação no terminal.
+    """
     # 1. Preparação
     ano = datetime.now().year
-    html_tmpl = load_template_html()
+    html_tmpl = load_template_html() # Usa a função auxiliar
     
+    template_data = {
+        'nome': eleitor.nome.split()[0],
+        'user_id': keys.user_id,
+        'priv_key': keys.priv_key,      
+        'pub_key': keys.pub_key, 
+        'link_votacao': BASE_FORM_URL, 
+        'ano': ano, 
+        'from_name': FROM_NAME,
+        'data_inicio_votacao': DATA_INICIO_VOTACAO,
+        'data_fim_votacao': DATA_FIM_VOTACAO
+    }
+
     # Preenche o template com TODAS as variáveis necessárias
     try:
-        html_content = html_tmpl.format(
-            nome=eleitor.nome.split()[0], # Apenas o primeiro nome para o template
-            user_id=keys.user_id, 
-            
-            # Mapeia 'priv_key' para 'chave_privada' e 'priv_key' para o template
-            priv_key=keys.priv_key,       
-            chave_privada=keys.priv_key,  
-            
-            pub_key=keys.pub_key, 
-            link_votacao=BASE_FORM_URL, 
-            ano=ano, 
-            from_name=FROM_NAME,
-            
-            # ➡️ MUDANÇA MÍNIMA AQUI: INSERINDO AS DATAS
-            data_inicio_votacao=DATA_INICIO_VOTACAO,
-            data_fim_votacao=DATA_FIM_VOTACAO
-        )
+        html_content = html_tmpl.format(**template_data)
     except KeyError as e:
         print(f"[ERRO TEMPLATE] Variável faltando no template HTML: {e}")
+        log_event('ERRO FATAL', eleitor.email, keys.user_id, f"KeyError no template: {e}", is_production)
         return False
+    except Exception as e:
+         print(f"[ERRO GERAL] Erro desconhecido na formatação do template: {e}")
+         log_event('ERRO FATAL', eleitor.email, keys.user_id, f"Erro na formatação do template: {e}", is_production)
+         return False
     
-    # Conteúdo de texto simples
+    # Conteúdo de texto simples (Formato detalhado desejado pelo usuário)
     text_content = (
         f"Olá {eleitor.nome},\n\n"
         f"Seguem seus dados para a Eleição AGESP {ano}:\n\n"
-        f"Período: {DATA_INICIO_VOTACAO} a {DATA_FIM_VOTACAO}\n"
+        f"Período        : {DATA_INICIO_VOTACAO} a {DATA_FIM_VOTACAO}\n"
         f"ID de Validação: {keys.user_id}\n"
         f"Chave Privada  : {keys.priv_key}\n"
         f"Chave Pública  : {keys.pub_key}\n"
@@ -365,160 +567,166 @@ def send_email_consolidated(eleitor: Eleitor, keys: KeyPair, production: bool) -
         f"Atenciosamente,\n{FROM_NAME}"
     )
 
+    # 2. Construção da Mensagem EmailMessage
     msg = EmailMessage()
-    msg["Subject"] = SUBJECT
+    msg["Subject"] = SUBJECT 
     msg["From"] = formataddr((FROM_NAME, SMTP_USER))
     msg["To"] = eleitor.email
-    msg.set_content(text_content)
-    msg.add_alternative(html_content, subtype="html")
-
-    # 2. Envio / Simulação
+    msg.set_content(text_content) # Conteúdo de texto simples
+    msg.add_alternative(html_content, subtype="html") # Conteúdo HTML
+    
+    # 3. Envio / Simulação
     success = False
     log_msg = ""
     log_level = 'INFO'
 
-    if not production:
+    if not is_production:
+        # MODO DE TESTE: Formato de simulação detalhado
         print("\n" + "="*60)
         print(f"🧪 [TESTE] E-MAIL SIMULADO PARA: {eleitor.email}")
         print("-" * 60)
         print(f"Assunto: {SUBJECT}")
         print("\nCONTEÚDO (Visualização):")
-        print("    " + "\n    ".join(text_content.split('\n')))
+        # Imprime o conteúdo de texto formatado
+        print("    " + "\n    ".join(text_content.split('\n'))) 
         print("="*60 + "\n")
+        
         success = True
         log_msg = "Simulação de envio bem-sucedida."
+        log_level = 'INFO'
     else:
-        smtp_pass = ENV.get('secrets', {}).get('smtp_pass')
-        if not smtp_pass:
-            log_msg = "Senha SMTP não configurada."
-            log_level = 'ERROR'
+        # MODO DE PRODUÇÃO: Lógica de envio robusta com tratamento de exceções        
+        smtp_password = ENV.get('SMTP_PASSWORD')
+        if not smtp_password:
+            log_msg = "SMTP_PASSWORD ausente na raiz do env.toml. Cancelando envio."
+            log_level = 'ERRO FATAL'
         else:
             try:
+                print(f"[INFO] Tentando enviar e-mail para: {eleitor.email}...")
                 ctx = ssl.create_default_context()
+                
                 with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx) as server:
-                    server.login(SMTP_USER, smtp_pass)
+                    server.login(SMTP_USER, smtp_password)
                     server.send_message(msg)
-                success = True
-                log_msg = "E-mail enviado com sucesso (SMTP)."
+                    
+                    success = True
+                    log_msg = "E-mail enviado com sucesso (SMTP)."
+            
+            # Tratamento de Erros Detalhado (Mantido robusto)
+            except smtplib.SMTPAuthenticationError:
+                log_msg = "Falha de autenticação SMTP. Senha ou usuário incorretos."
+                log_level = 'ERRO FATAL'
+            except smtplib.SMTPConnectError as e:
+                log_msg = f"Falha de conexão SMTP. Servidor ou porta incorretos: {e}"
+                log_level = 'ERRO CRÍTICO'
+            except smtplib.SMTPException as e:
+                log_msg = f"Falha geral no envio SMTP: {e}"
+                log_level = 'ERRO CRÍTICO'
             except Exception as e:
-                log_msg = f"Falha no envio SMTP: {e}"
-                log_level = 'ERROR'
+                log_msg = f"Erro desconhecido durante o envio: {e}"
+                log_level = 'ERRO CRÍTICO'
 
-    log_event(log_level, eleitor.email, keys.user_id, log_msg, production)
-    if success: print(f"[SUCESSO] {log_msg}")
-    else: print(f"[FALHA] {log_msg}")
-    
+    # Registro de Log e feedback no terminal
+    log_event(log_level, eleitor.email, keys.user_id, log_msg, is_production)
+    if success and log_level == 'INFO': 
+        print(f"[SUCESSO] {log_msg}")
+    elif not success and log_level != 'INFO':
+        print(f"[{log_level}] {log_msg}") # Imprime logs de erro no terminal
+        
     return success
 
-def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, resend: bool, production: bool):
-    """Fluxo completo de processamento de um eleitor."""
-    enviados_list = load_enviados()
-    registros_antigos = [r for r in enviados_list if r.email == eleitor.email]
+
+# --- 8. FLUXO PRINCIPAL ---
+
+def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_resend: bool, production: bool) -> None:
+    """
+    Processa um único eleitor: verifica status, gera chaves e envia e-mail.
+    """
+    registros_antigos = load_enviados()
+    registro_atual = next((r for r in registros_antigos if r.email == eleitor.email), None)
     
-    # Validação de Processamento
-    if registros_antigos and not resend:
-        print(f'[INFO] {eleitor.email} já processado. Use --resend para forçar.')
+    # 1. Verifica se já foi enviado e se não é reenvio forçado
+    if registro_atual and not force_resend:
+        print(f"[PULAR] Eleitor {eleitor.nome} ({eleitor.email}) já processado (Geração {registro_atual.generation}). Use --resend para reenviar.")
         return
 
-    # A partir daqui, estamos sempre emitindo novas chaves/IDs.
-    
-    if registros_antigos:
-        for r in registros_antigos: r.is_active = False # Invalida localmente
-        log_event('INFO', eleitor.email, 'N/A', f'Reenvio: {len(registros_antigos)} registros invalidados', production)
-
-    # 1. Gera Novas Chaves e ID (SEMPRE NOVOS)
-    ids_usados = {r.user_id for r in enviados_list}
+    # 2. Geração da Nova Chave
     keys = generate_key_pair()
-    # Garante unicidade do NOVO user_id
-    while keys.user_id in ids_usados:
-        keys = generate_key_pair()
-
-    # 2. Persistência Local (Antes de Enviar)
-    next_gen = max([r.generation for r in registros_antigos], default=0) + 1
-    novo_reg = RegistroEnvio(
-        timestamp=datetime.now().isoformat(timespec='seconds'),
-        email=eleitor.email,
-        user_id=keys.user_id,
-        pub_key=keys.pub_key,
-        generation=next_gen,
-        is_active=True,
-        is_delivered=False,
-        is_production=production
-    )
-    enviados_list.append(novo_reg)
     
-    try:
-        save_enviados_atomically(enviados_list)
-    except Exception as e:
-        print(f"[ERRO] Falha ao salvar CSV local: {e}")
+    # 3. Tentativa de Envio de E-mail
+    is_delivered = send_email(eleitor, keys, production)
+
+    if not is_delivered and production:
+        # Se falhou em produção, não registra a chave no Sheets e aborta o registro local.
+        print(f"[AVISO] Chave não registrada no Sheets devido à falha de envio para {eleitor.email}.")
         return
 
-    # 3. Atualização Google Sheets (Sempre Real)
+    # 4. Atualização Google Sheets (Sempre Real - Chaves são registradas mesmo em modo TESTE)
     try:
         # a. Invalida anteriores (com delay se necessário)
         for r in registros_antigos:
-            if sheet_service.invalidate_old_key(r.user_id):
+            if r.email == eleitor.email and sheet_service.invalidate_old_key(r.user_id):
                 time.sleep(3.0) # Delay para cota de escrita
-        
+
         # b. Insere nova chave
         now_str = datetime.now().strftime(DATE_FORMAT)
         sheet_service.append_row(SHEET_NAME_PUB_KEY, [
-            keys.user_id, keys.pub_key, True, production, now_str, ''
+            keys.user_id,
+            keys.pub_key,
+            True,
+            production,
+            now_str,
+            '' # Coluna de t_desativacao (vazio na inserção)
         ])
         time.sleep(2.0) # Delay pós-escrita
-        
+
         log_event('INFO', eleitor.email, keys.user_id, 'Google Sheets atualizado.', production)
 
         # 💡 PASSO CRÍTICO: CHAMA O APPS SCRIPT PARA RECALCULAR TUDO
-        # sheet_service.execute_apps_script_function('generateApuracaoAutomatica')
-        # time.sleep(5.0) # Delay para processamento do Apps Script
-
-        sheet_service.write_flag_to_cell(
-            APPS_SCRIPT_FLAG_CELL, 
-            datetime.now().strftime(DATE_FORMAT) # Usa o timestamp como flag
-        )
-        print("[API SCRIPT] Função generateApuracaoAutomatica acionada via Sheets API (Flag).")
-        time.sleep(5.0) # Delay para dar tempo do gatilho rodar
+        sheet_service.write_flag_to_cell(APPS_SCRIPT_FLAG_CELL, now_str)
+        print(f"[API SCRIPT] Função generateApuracaoAutomatica acionada via Sheets API (Flag).")
 
     except Exception as e:
-        msg = f"Falha CRÍTICA no Google Sheets: {e}"
-        print(f"[ERRO] {msg}")
-        log_event('ERROR', eleitor.email, keys.user_id, msg, production)
-        return
+        log_event('ERRO', eleitor.email, keys.user_id, f'Falha crítica no Sheets API: {e}', production)
+        print(f"[ERRO CRÍTICO] Falha ao atualizar Google Sheets para {eleitor.email}: {e}")
+        return # Aborta registro local se Sheets falhou
 
-    # 4. Envio de E-mail
-    sent = False
-    attempts = 3 if production else 1
+    # 5. Atualiza Registro Local
+    new_generation = (registro_atual.generation + 1) if registro_atual else 1
     
-    for i in range(attempts):
-        if send_email_consolidated(eleitor, keys, production):
-            sent = True
-            break
-        time.sleep(2)
+    # Remove registros antigos do mesmo eleitor
+    registros_limpos = [r for r in registros_antigos if r.email != eleitor.email]
+    
+    # Adiciona o novo registro (limpando o antigo)
+    registros_limpos.append(RegistroEnvio(
+        timestamp=datetime.now().strftime(DATE_FORMAT),
+        email=eleitor.email,
+        user_id=keys.user_id,
+        pub_key=keys.pub_key,
+        generation=new_generation,
+        is_active=True,
+        is_delivered=is_delivered,
+        is_production=production
+    ))
+    save_enviados_atomically(registros_limpos)
+    print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
 
-    # 5. Atualiza Status Entrega
-    if sent:
-        novo_reg.is_delivered = True
-        try:
-            save_enviados_atomically(enviados_list)
-            print(f"[CSV] Status atualizado: Entregue para {eleitor.email}")
-        except Exception as e:
-            print(f"[WARN] Falha ao atualizar status de entrega: {e}")
-
-
-# --- 6. MAIN ---
 
 def main():
-    parser = argparse.ArgumentParser(description='Sistema de Eleições AGESP')
-    parser.add_argument('destinatario', help='Email do destinatário ou "TODOS"')
-    parser.add_argument('--resend', action='store_true', help='Força reenvio e rotação de chaves')
-    parser.add_argument('--production', action='store_true', help='ATIVA ENVIO REAL (E-mail e Sheets)')
+    parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
+    parser.add_argument('destinatario', nargs='?', default='TODOS', help="E-mail do eleitor (ou 'TODOS') para processamento.")
+    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave).")
+    parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
     args = parser.parse_args()
 
+    # 1. Executa Auditoria de Arquivos (Para o vídeo/registro)
+    generate_audit_hashes()
+    
+    # 2. Aviso de Modo de Execução
     print("\n" + "="*50)
     if args.production:
         print("🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
-        print("Envios REAIS de e-mail. Cancelar? (Ctrl+C - 5 segundos)")
+        print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
         time.sleep(5)
     else:
         print("🧪 MODO DE TESTE (Simulação de E-mail)")
@@ -526,7 +734,6 @@ def main():
     print("="*50 + "\n")
 
     try:
-        # sheet_service = GoogleSheetsService(SPREADSHEET_ID, APPS_SCRIPT_ID)
         sheet_service = GoogleSheetsService(SPREADSHEET_ID)
         eleitores = load_eleitores()
         
@@ -537,13 +744,14 @@ def main():
         targets = []
         if args.destinatario.upper() == 'TODOS':
             targets = eleitores
+            args.resend = True # No modo TODOS, sempre gera nova chave
         else:
             found = next((e for e in eleitores if e.email == args.destinatario), None)
             if found:
                 targets = [found]
                 args.resend = True # Alvo único implica intenção de envio/reenvio
             else:
-                print(f"[ERRO] Eleitor {args.destinatario} não encontrado.")
+                print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
                 return
 
         print(f"[INFO] Iniciando processamento de {len(targets)} eleitor(es)...")
@@ -552,9 +760,9 @@ def main():
             process_eleitor(eleitor, sheet_service, args.resend, args.production)
 
     except KeyboardInterrupt:
-        print("\n[INTERROMPIDO] Operação cancelada pelo usuário.")
+        print("\n[INTERRUPÇÃO] Processamento cancelado pelo usuário.")
     except Exception as e:
-        print(f"\n[ERRO FATAL] {e}")
+        print(f"\n[ERRO FATAL] Ocorreu um erro não tratado: {e}")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

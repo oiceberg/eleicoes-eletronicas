@@ -3,7 +3,7 @@
 // ======================================================================================
 
 const SHEET_NAMES = {
-  KEYS: 'chaves_publicas',
+  KEYS: 'Credenciais',
   RESPONSES: 'Respostas',
   VALIDATION: 'validacao_automatica',
   TALLY: 'Apuração'
@@ -394,11 +394,11 @@ function generateApuracaoAutomatica() {
         else apSheet.clear();
         
         const emptyData = padRows([
-          ['Conselho Executivo (Pontos)'], 
-          ['Candidato', 'Pontos', ...Array.from({length:N_POSICOES_MOSTRADAS}, (_,i)=>`#${i+1}`)], 
-          [''],
-          ['Conselho Fiscal e de Ética (Votos)'], 
-          ['Candidato', 'Votos']
+            ['Conselho Executivo (Pontos)'], 
+            ['Candidatos', 'Pontos', ...Array.from({length:N_POSICOES_MOSTRADAS}, (_,i)=>`#${i+1}`)], 
+            [''],
+            ['Conselho Fiscal e de Ética (Votos)'], 
+            ['Candidatos', 'Votos']
         ], maxColsFinal);
         
         apSheet.getRange(1, 1, emptyData.length, maxColsFinal).setValues(emptyData);
@@ -499,7 +499,7 @@ function generateApuracaoAutomatica() {
     // 5. Formatar e Ordenar Resultados
     
     // Tabela Executivo
-    const execHeader = ['Candidato', 'Pontos', ...Array.from({length:N_POSICOES_MOSTRADAS_FINAL}, (_,i)=>`#${i+1}`)];
+    const execHeader = ['Candidatos', 'Pontos', ...Array.from({length:N_POSICOES_MOSTRADAS_FINAL}, (_,i)=>`#${i+1}`)];
     const execRows = Array.from(execStats.entries()).map(([nome, s]) => [nome, s.pontos, ...s.posCounts]);
 
     execRows.sort((a, b) => {
@@ -517,7 +517,7 @@ function generateApuracaoAutomatica() {
     ];
 
     // Tabela Fiscal
-    const fiscalHeader = ['Candidato', 'Votos'];
+    const fiscalHeader = ['Candidatos', 'Votos'];
     const fiscalRows = Array.from(fiscalStats.entries())
         .map(([nome, votos]) => [nome, votos])
         .sort((a,b) => (b[1] - a[1]) || a[0].localeCompare(b[0], 'pt-BR')); 
@@ -577,8 +577,7 @@ function generateApuracaoAutomatica() {
     const fiscalHeaderRowIdx = fiscalTitleRowIdx + 1;
     const statsTitleRowIdx = paddedExecTable.length + 1 + paddedFiscalTable.length + 2; 
     
-    // Formatação dos Títulos de Seção (Fonte Grande, Negrito, Alinhado à Esquerda, PERMITE EXTRAPOLAÇÃO)
-    // Removemos .mergeAcross() e qualquer alinhamento 'center' explícito para permitir o overflow/transbordamento.
+    // Formatação dos Títulos de Seção (Fonte Grande, Negrito)
     apuracaoSheet.getRange(execTitleRowIdx, 1).setFontWeight('bold').setFontSize(14);
     apuracaoSheet.getRange(fiscalTitleRowIdx, 1).setFontWeight('bold').setFontSize('14');
     apuracaoSheet.getRange(statsTitleRowIdx, 1).setFontWeight('bold').setFontSize(14);
@@ -587,15 +586,37 @@ function generateApuracaoAutomatica() {
     apuracaoSheet.getRange(execHeaderRowIdx, 1, 1, execHeader.length).setFontWeight('bold').setBackground('#d9ead3'); 
     apuracaoSheet.getRange(fiscalHeaderRowIdx, 1, 1, fiscalHeader.length).setFontWeight('bold').setBackground('#cfe2f3'); 
     
-    // Formatação do Corpo das Estatísticas
+    // 🚨 CORREÇÃO DE FORMATO: Força a exibição de inteiros para as contagens e pontos.
+    
+    // === CONSELHO EXECUTIVO: Colunas B em diante (Pontos e Contagens de Posição) ===
+    const execBodyStartRow = execHeaderRowIdx + 1;
+    const execRowCount = execRows.length;
+    if (execRowCount > 0 && maxColsFinal > 1) {
+        // Aplica o formato de inteiro '0' para todos os resultados numéricos do Executivo
+        apuracaoSheet.getRange(execBodyStartRow, 2, execRowCount, maxColsFinal - 1).setNumberFormat('0');
+    }
+
+    // === CONSELHO FISCAL: Coluna B (Votos) ===
+    const fiscalBodyStartRow = fiscalHeaderRowIdx + 1;
+    const fiscalRowCount = fiscalRows.length;
+    if (fiscalRowCount > 0) {
+        // Aplica o formato de inteiro '0' para os Votos
+        apuracaoSheet.getRange(fiscalBodyStartRow, 2, fiscalRowCount, 1).setNumberFormat('0');
+    }
+
+    // === ESTATÍSTICAS: Coluna B (Valores) ===
     const statsBodyStartRow = statsTitleRowIdx + 1;
     const statsCount = statsRowsData.length;
     
-    // Coluna 2 (Valores) das estatísticas: Fundo Cinza
-    apuracaoSheet.getRange(statsBodyStartRow, 2, statsCount, 1).setBackground('#f3f3f3');
-    
-    // Destaque Vermelho para a Nota de Corte
-    apuracaoSheet.getRange(statsBodyStartRow + statsCount - 1, 2).setBackground('#ffdddd').setNumberFormat('0.00'); 
+    // Coluna 2 (Valores) das estatísticas: Fundo Cinza e Formato de INTEIRO
+    const statsValuesRange = apuracaoSheet.getRange(statsBodyStartRow, 2, statsCount, 1);
+    statsValuesRange.setBackground('#f3f3f3');
+    // Formato de Inteiro '0' para Credenciais, Votações, MTPCE
+    statsValuesRange.setNumberFormat('0'); 
+
+    // Destaque Vermelho para a Nota de Corte (SOBRESCREVE o formato anterior com '0.0' para a última linha)
+    const notaDeCorteRow = statsBodyStartRow + statsCount - 1;
+    apuracaoSheet.getRange(notaDeCorteRow, 2).setBackground('#ffdddd').setNumberFormat('0.0'); 
     
     apuracaoSheet.autoResizeColumns(1, apuracaoSheet.getMaxColumns());
 
