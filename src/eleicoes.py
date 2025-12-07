@@ -705,10 +705,6 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
             is_production=production
         )
 
-        # 💡 PASSO CRÍTICO: CHAMA O APPS SCRIPT PARA RECALCULAR TUDO
-        sheet_service.write_flag_to_cell(APPS_SCRIPT_FLAG_CELL, now_str)
-        print(f"[API SCRIPT] Função generateApuracaoAutomatica acionada via Sheets API (Flag).")
-
     except Exception as e:
         log_event(
             level='ERRO',
@@ -806,10 +802,39 @@ def main():
                 print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
                 return
 
+        # 4. Lógica de embaralhamento criptograficamente seguro (não-reprodutível)
+        # Usa SystemRandom do módulo secrets para garantir que o embaralhamento seja baseado na entropia do SO.
+        if len(targets) > 1:
+            secrets.SystemRandom().shuffle(targets)
+            
+            print(f"[INFO] Ordem de processamento embaralhada de forma CRIPTOGRAFICAMENTE SEGURA para {len(targets)} eleitor(es).")
+            print("[INFO] A ordem é irreprodutível e garante a máxima proteção contra inferência de ID/Chave.")
+
         print(f"[INFO] Iniciando processamento de {len(targets)} eleitor(es)...")
         
         for eleitor in targets:
             process_eleitor(eleitor, sheet_service, args.resend, args.production)
+
+        # 5. Atualização da flag de apuração (run once)
+        # O "Cutucão" para o Apps Script é feito APENAS UMA ÚNICA VEZ
+        if len(targets) > 0:
+            timestamp = datetime.now().strftime(DATE_FORMAT)
+            
+            # Combina o nome da aba e a célula no formato A1
+            range_a1_notation = f"{APPS_SCRIPT_FLAG_CELL}"
+
+            # Chama a função de atualização via API uma única vez
+            sheet_service.update_cell(range_a1_notation, timestamp)
+            
+            # Log corrigido, referenciando a função triggerApuracao
+            log_event(
+                level="INFO", 
+                email="", 
+                user_id="SYSTEM", 
+                message=f"Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)", 
+                is_production=args.production
+            )
+            print(f"[API SCRIPT] Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)")
 
     except KeyboardInterrupt:
         print("\n[INTERRUPÇÃO] Processamento cancelado pelo usuário.")

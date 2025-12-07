@@ -30,21 +30,23 @@ Quando executamos `python src/eleicoes.py`:
 
 1.  **Auditoria de Integridade (Fail-Fast):** Antes de qualquer lógica, o script calcula o hash **SHA-256** de todos os arquivos críticos do projeto (`.py`, `.js`, `.csv`, `.toml`). Isso garante que o código sendo executado é exatamente o código auditado. Um "Meta Hash" do arquivo de auditoria é gerado ao final.
 2.  **Sanity Check:** Carrega a lista de eleitores e interrompe imediatamente se encontrar e-mails mal formatados.
-3.  **Criptografia (HMAC-SHA256):**
-      * Para cada eleitor, gera um **ID Público** (6 números aleatórios).
-      * Gera uma **Chave Privada** (**12 caracteres alfanuméricos aleatórios**).
-      * Calcula a **Chave Pública** usando HMAC-SHA256: **`HMAC(Mensagem=ID Público + Chave Privada, Chave=MASTER_KEY)`**.
-4.  **Sincronização com a Nuvem:**
-      * Conecta-se à API do Google Sheets.
-      * Invalida chaves antigas (se houver reenvio).
-      * Registra apenas o **ID** e a **Chave Pública** na aba `Credenciais`. A **Chave Privada** possui **existência efêmera**, sendo gerada localmente, utilizada para calcular a Chave Pública e enviada por e-mail, residindo, a partir de então, apenas na caixa de entrada do eleitor.
-      * A **Chave Privada nunca é registrada** na planilha ou em qualquer outro lugar, nem localmente, nem na nuvem.
-5.  **O "Cutucão" (Trigger Flag):**
-      * Após atualizar todas as Chaves Públicas na aba `Credenciais`, o Python escreve um ***timestamp*** (carimbo de data/hora) na célula `config_automatica!A1`.
-      * **Motivação Técnica (Contorno de API):**
-          * Esta abordagem é necessária porque a API do Google Sheets **não permite que um script externo (o Python) chame diretamente uma função customizada do Google Apps Script** (como a `triggerApuracao`).
-          * Ao invés disso, utilizamos a própria planilha como um **agente de comunicação**. A edição dessa célula ativa o gatilho nativo do Apps Script configurado como **"Ao editar"** (`onEdit`), que, por sua vez, chama a função `triggerApuracao` dentro da segurança da nuvem do Google. Isso garante que as estatísticas de apuração sejam recalculadas imediatamente após a finalização da geração das credenciais pelo Python, mantendo a responsabilidade da apuração estritamente no ambiente do Apps Script.
-6.  **Disparo de Credenciais:** Envia o ID e a Chave Privada (que só existem na memória do script neste momento) para o e-mail do eleitor via SMTP TLS seguro.
+3.  **Anonimato e Ordem de Registro:** Se houver mais de um eleitor, a lista de processamento é **embaralhada de forma criptograficamente segura** usando o módulo `secrets` do Python. Isso previne qualquer correlação entre a ordem da lista de eleitores de entrada (ex: alfabética) e a ordem de registro das chaves na planilha, **garantindo o anonimato**.
+4.  **Criptografia (HMAC-SHA256):**
+    * Para cada eleitor, gera um **ID Público** (6 números aleatórios).
+    * Gera uma **Chave Privada** (**12 caracteres alfanuméricos aleatórios**).
+    * Calcula a **Chave Pública** usando HMAC-SHA256: **`HMAC(Mensagem=Chave Privada, Chave=MASTER_KEY)`**.
+5.  **Sincronização com a Nuvem:**
+    * Conecta-se à API do Google Sheets.
+    * Invalida chaves antigas (se houver reenvio).
+    * Registra apenas o **ID** e a **Chave Pública** na aba `Credenciais`. A **Chave Privada** possui **existência efêmera**, sendo gerada localmente, utilizada para calcular a Chave Pública e enviada por e-mail, residindo, a partir de então, apenas na caixa de entrada do eleitor.
+    * A **Chave Privada nunca é registrada** na planilha ou em qualquer outro lugar, nem localmente, nem na nuvem.
+6.  **O "Cutucão" (Trigger Flag - Disparo Único):**
+    * **Após atualizar todas as Chaves Públicas** na aba `Credenciais`, o Python escreve um ***timestamp*** (carimbo de data/hora) na célula `config_automatica!A1`. Este passo é executado **apenas uma vez** para evitar o consumo excessivo da cota de processamento do Apps Script.
+    * **Motivação Técnica (Contorno de API):**
+        * Esta abordagem é necessária porque a API do Google Sheets **não permite que um script externo (o Python) chame diretamente uma função customizada do Google Apps Script** (como a `triggerApuracao`).
+        * Ao invés disso, utilizamos a própria planilha como um **agente de comunicação**. A edição dessa célula ativa o gatilho nativo do Apps Script configurado como **"Ao alterar"** (`onChange`). O gatilho `onChange` é necessário porque o gatilho **"Ao editar"** (`onEdit`) não é disparado por alterações feitas via API.
+        * O `onChange` aciona a função `triggerApuracao` dentro da segurança da nuvem do Google, que inicia o recálculo imediato de todas as estatísticas.
+7.  **Disparo de Credenciais:** Envia o ID e a Chave Privada (que só existem na memória do script neste momento) para o e-mail do eleitor via SMTP TLS seguro.
 
 ### 2.2. A Segurança do Formulário (`Formulario.js`)
 
@@ -172,7 +174,7 @@ Configure manualmente os seguintes gatilhos:
 | Função | Origem do Evento | Tipo de Evento | Descrição |
 | :--- | :--- | :--- | :--- |
 | `onFormSubmit` | Da planilha | **Ao enviar o formulário** | Processa o voto assim que chega. |
-| `triggerApuracao` | Da planilha | **Ao editar** | Acionado pelo Python (via flag cell) para atualizar a apuração. |
+| `triggerApuracao` | Da planilha | **Ao alterar** | Acionado pelo Python (via flag cell) para atualizar a apuração. |
 
 ### 5.2. No Formulário (Segurança)
 
