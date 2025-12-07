@@ -334,29 +334,29 @@ def generate_audit_hashes() -> None:
         })
     
     # 5. Imprime o Relatório Final
-    print("\n" + "="*92)
-    print("🔐 Relatório de Integridade Criptográfica (SHA-256) 🔐".center(92))
-    print("-" * 92)
+    print("\n" + "="*104)
+    print("🔐 Relatório de Integridade Criptográfica (SHA-256) 🔐".center(104))
+    print("-" * 104)
     
     # Imprime todos os hashes, exceto o último (Meta Hash)
     if audit_data:
         # Imprime todos os itens, exceto o último (o Meta Hash)
         for entry in audit_data[:-1]:
-            print(f"[{entry['arquivo'].ljust(25)}] {entry['hash_sha256']}")
+            print(f"[{entry['arquivo'].ljust(37)}] {entry['hash_sha256']}")
         
         # Imprime a linha de separação
-        print("-" * 92)
+        print("-" * 104)
 
         # Imprime a mensagem de salvamento
         print(f"📝 Hashes de auditoria salvos em '{DYNAMIC_AUDIT_FILEPATH.replace(os.sep, '/')}'")
 
         # Imprime o Meta Hash (último item da lista)
         meta_entry = audit_data[-1]
-        print(f"[{meta_entry['arquivo'].ljust(25)}] {meta_entry['hash_sha256']}")
+        print(f"[{meta_entry['arquivo'].ljust(37)}] {meta_entry['hash_sha256']}")
     else:
-        print("Nenhum arquivo auditado com sucesso.".center(92))
+        print("Nenhum arquivo auditado com sucesso.".center(104))
         
-    print("=" * 92)
+    print("=" * 104)
 
 def is_valid_email(email: str) -> bool:
     """Valida formato básico de e-mail para evitar rejeição SMTP."""
