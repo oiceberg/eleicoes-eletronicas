@@ -201,9 +201,9 @@ function revalidateAllVotes() {
     let status = 'Inválidas - ID Inválido';
     if (keyData) {
       if (subPub === keyData.pub_key) {
-        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Desativada';
+        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Desativada';
       } else {
-        status = 'Inválidas - Chave Privada Inválida';
+        status = 'Inválidas - Chave Inválida';
       }
     }
     updates.push([status]);
@@ -230,9 +230,9 @@ function processResponse_({ sheet, row, namedValues }) {
 
     if (keyData) {
       if (keyData.pub_key === calcPub) {
-        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Privada Desativada';
+        status = keyData.is_active ? 'Válidas' : 'Inválidas - Chave Desativada';
       } else {
-        status = 'Inválidas - Chave Privada Inválida';
+        status = 'Inválidas - Chave Inválida';
       }
     }
     writeCellByNameOrFallback(sheet, row, headers, COL_NAMES.CREDENTIALS, 4, status);

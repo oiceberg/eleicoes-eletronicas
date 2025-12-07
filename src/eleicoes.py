@@ -58,7 +58,6 @@ DATE_FORMAT: Final[str]        = '%d/%m/%Y %H:%M:%S'
 ELEITORES_FILEPATH: Final[str] = 'data/eleitores.csv'
 ENVIADOS_FILEPATH: Final[str]  = 'data/enviados.csv'
 LOG_FILEPATH: Final[str]       = 'data/eleicoes.log.csv'
-AUDIT_HASHES_FILEPATH: Final[str] = 'data/audit_hashes.csv'
 TEMPLATE_FILEPATH: Final[str]  = 'templates/template.html'
 GS_FORMULARIO_FILEPATH: Final[str] = 'gs/Formulario.js'
 GS_PLANILHA_FILEPATH: Final[str]   = 'gs/Planilha.js'
@@ -269,15 +268,18 @@ def generate_audit_hashes() -> None:
     Calcula e imprime o 'meta hash' do arquivo de auditoria DEPOIS de salvá-lo.
     """
 
+    now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    DYNAMIC_AUDIT_FILEPATH = os.path.join('data', f"audit_hashes_{now_str}.csv")
+
     # 1. Lista em ordem lógica/cronológica de importância no processo de auditoria
     files_to_hash = [
         os.path.abspath(__file__), # 1. O script principal
         ENV_TOML_FILEPATH,         # 2. Configuração de segredos
         CREDENTIALS_PATH,          # 3. JSON de credenciais
         ELEITORES_FILEPATH,        # 4. Dados de entrada (eleitores)
-        TEMPLATE_FILEPATH,         # 5. Template de e-mail
-        GS_FORMULARIO_FILEPATH,    # 6. Script do Google Form
-        GS_PLANILHA_FILEPATH,      # 7. Script do Google Sheets
+        GS_FORMULARIO_FILEPATH,    # 5. Script do Google Form
+        GS_PLANILHA_FILEPATH,      # 6. Script do Google Sheets
+        TEMPLATE_FILEPATH,         # 7. Template do e-mail
     ]
     
     audit_data = []
@@ -303,29 +305,27 @@ def generate_audit_hashes() -> None:
         else:
             print(f"[AVISO] Arquivo não encontrado para auditoria: {filepath.replace(os.sep, '/')} -> Hash não gerado.")
 
-    # 3. Salva em CSV (audit_hashes.csv)
-    file_exists = os.path.exists(AUDIT_HASHES_FILEPATH)
+    # 3. Salva em CSV (audit_hashes_timestamp.csv)
     try:
-        with open(AUDIT_HASHES_FILEPATH, mode='a', newline='', encoding=ENCODING) as f:
+        with open(DYNAMIC_AUDIT_FILEPATH, mode='w', newline='', encoding=ENCODING) as f:
             writer = csv.writer(f, delimiter=DELIMITER)
             
-            # Escreve cabeçalho se o arquivo não existe ou está vazio
-            if not file_exists or os.path.getsize(AUDIT_HASHES_FILEPATH) == 0:
-                writer.writerow(['timestamp', 'arquivo', 'hash_sha256'])
+            # Escreve cabeçalho
+            writer.writerow(['timestamp', 'arquivo', 'hash_sha256'])
             
             for entry in audit_data:
                 writer.writerow([entry['timestamp'], entry['arquivo'], entry['hash_sha256']])
                 
     except Exception as e:
-        print(f"[ERRO] Não foi possível salvar arquivo de auditoria '{AUDIT_HASHES_FILEPATH}': {e}")
+        print(f"[ERRO] Não foi possível salvar arquivo de auditoria '{DYNAMIC_AUDIT_FILEPATH}': {e}")
         # Aborta a execução para não prosseguir com uma auditoria incompleta
         sys.exit(1)
 
     # 4. Calcula e adiciona o Meta Hash (agora que o arquivo está SALVO)
-    meta_hash = generate_hash_of_file(AUDIT_HASHES_FILEPATH)
+    meta_hash = generate_hash_of_file(DYNAMIC_AUDIT_FILEPATH)
     
     if meta_hash:
-        meta_file_name = AUDIT_HASHES_FILEPATH.replace(os.sep, '/')
+        meta_file_name = DYNAMIC_AUDIT_FILEPATH.replace(os.sep, '/')
         # Adiciona a entrada do Meta Hash no final para ser impresso
         audit_data.append({
             "timestamp": datetime.now().strftime(DATE_FORMAT),
@@ -348,7 +348,7 @@ def generate_audit_hashes() -> None:
         print("-" * 92)
 
         # Imprime a mensagem de salvamento
-        print("📝 Hashes de auditoria salvos em 'data/audit_hashes.csv'")
+        print(f"📝 Hashes de auditoria salvos em '{DYNAMIC_AUDIT_FILEPATH.replace(os.sep, '/')}'")
 
         # Imprime o Meta Hash (último item da lista)
         meta_entry = audit_data[-1]
