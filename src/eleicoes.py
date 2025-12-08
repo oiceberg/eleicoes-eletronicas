@@ -1,7 +1,6 @@
 """
 Script Name: eleicoes.py
-Version: 1.0 (Com Auditoria e Validação)
-Date: 2025-12-06
+Date: 2025-12-08
 Authors:
     - Leandro Pires Salvador (leandrosalvador@protonmail.com, leandrosalvador@gmail.com)
     - Tiago Barreiros de Freitas (tiago4680@gmail.com)
@@ -39,6 +38,7 @@ import smtplib
 import ssl
 import hashlib
 import re
+import requests
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from email.message import EmailMessage
@@ -62,6 +62,7 @@ TEMPLATE_FILEPATH: Final[str]  = 'templates/template.html'
 GS_FORMULARIO_FILEPATH: Final[str] = 'gs/Formulario.js'
 GS_PLANILHA_FILEPATH: Final[str]   = 'gs/Planilha.js'
 ENV_TOML_FILEPATH: Final[str]      = 'config/env.toml'
+TERMINAL_LOG_FILEPATH          = 'data/terminal_log.txt'
 
 # Google Sheets
 SPREADSHEET_ID: Final[str] = '1TwS__JwRBG94R4d0WuVMXcYKKnafBuKIJWiJ6frKufw'
@@ -88,6 +89,19 @@ BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
 # Datas da Eleição
 DATA_INICIO_VOTACAO: Final[str] = "09/12/2025" 
 DATA_FIM_VOTACAO: Final[str] = "10/12/2025"
+
+# Constantes de integração com GitHub
+GITHUB_OWNER = "oiceberg"
+GITHUB_REPO = "eleicoes-eletronicas"
+GITHUB_BRANCH = "main"
+
+# Mapeamento de quais arquivos locais (usando o display name) devem ser comparados com o GitHub
+GITHUB_FILES_TO_COMPARE = [
+    'src/eleicoes.py',
+    'gs/Formulario.js',
+    'gs/Planilha.js',
+    'templates/template.html',
+]
 
 # Carrega Variáveis de Ambiente (Segredos)
 try:
@@ -131,6 +145,30 @@ class KeyPair:
     priv_key: str
     pub_key: str
 
+class Tee:
+    """
+    Redireciona a saída (stdout) para múltiplos fluxos (terminal e arquivo).
+    """
+    def __init__(self, filename, mode="a"):
+        self.file = open(filename, mode, encoding=ENCODING)
+        self.stdout = sys.stdout
+
+    def write(self, data):
+        # 1. Escreve no arquivo
+        self.file.write(data)
+        self.file.flush() # Força a escrita imediata
+        
+        # 2. Escreve no terminal
+        self.stdout.write(data)
+
+    def flush(self):
+        # Garante que ambos os fluxos sejam liberados
+        self.file.flush()
+        self.stdout.flush()
+
+    def close(self):
+        # Fecha apenas o arquivo (não o stdout original)
+        self.file.close()
 
 # --- 3. SERVIÇOS EXTERNOS (GOOGLE SHEETS) ---
 
@@ -251,112 +289,264 @@ class GoogleSheetsService:
 
 # --- 4. FUNÇÕES DE AUDITORIA E VALIDAÇÃO ---
 
+def fetch_github_hashes(files_to_check: list[str]) -> dict:
+    """
+    Busca o conteúdo raw dos arquivos no GitHub e calcula seus hashes SHA-256.
+    Requer a biblioteca 'requests' instalada.
+    """
+    github_hashes = {}
+    # A URL RAW do GitHub usa barras normais (/)
+    base_url = f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{GITHUB_BRANCH}"
+
+    for display_name in files_to_check:
+        # O caminho no GitHub é o próprio display_name (ex: 'src/eleicoes.py')
+        file_url = f"{base_url}/{display_name}"
+        
+        try:
+            # Faz a requisição HTTP
+            response = requests.get(file_url, timeout=10)
+            response.raise_for_status() # Lança exceção para status 4xx/5xx
+
+            # Calcula o Hash SHA-256 do conteúdo raw
+            file_hash = hashlib.sha256(response.content).hexdigest()
+            
+            github_hashes[display_name] = file_hash
+            
+        except requests.exceptions.RequestException as e:
+            # Apenas registra o aviso e continua
+            print(f"[AVISO GH] Falha ao buscar '{display_name}' no GitHub: {e}")
+        
+    return github_hashes
+
+import hashlib # Garanta que hashlib está importado
+
 def generate_hash_of_file(filepath: str) -> Optional[str]:
-    """Calcula o hash SHA-256 de um arquivo em disco."""
+    """
+    Calcula o hash SHA-256 de um arquivo em disco, forçando a normalização
+    das quebras de linha para LF (Unix) para garantir compatibilidade com o GitHub.
+    """
     try:
-        with open(filepath, "rb") as f:
-            return hashlib.sha256(f.read()).hexdigest()
+        # 1. Abre em modo texto ('r') com newline=None para ler universalmente.
+        #    Isso garante que \r\n (CRLF) e \r ou \n sejam tratados como quebras de linha.
+        with open(filepath, "r", encoding="utf-8", newline=None) as f:
+            # 2. Lê o conteúdo. O Python normaliza as linhas para o padrão \n (LF).
+            content = f.read()
+            
+            # 3. Codifica de volta para bytes (UTF-8) para o cálculo do hash
+            content_bytes = content.encode("utf-8")
+            
+            # 4. Calcula o hash dos bytes normalizados
+            return hashlib.sha256(content_bytes).hexdigest()
+            
     except FileNotFoundError:
         return None
     except Exception as e:
         print(f"[ERRO HASH] Falha ao calcular hash de {filepath}: {e}")
         return None
 
-def generate_audit_hashes() -> None:
+def generate_audit_hashes(is_production: bool) -> None:
     """
     Gera hashes SHA-256 dos arquivos críticos, imprime na tela e salva em CSV para auditoria.
-    Calcula e imprime o 'meta hash' do arquivo de auditoria DEPOIS de salvá-lo.
+    Inclui uma comparação explícita com os hashes do GitHub.
     """
-
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     DYNAMIC_AUDIT_FILEPATH = os.path.join('data', f"audit_hashes_{now_str}.csv")
 
-    # 1. Lista em ordem lógica/cronológica de importância no processo de auditoria
-    files_to_hash = [
-        os.path.abspath(__file__), # 1. O script principal
-        ENV_TOML_FILEPATH,         # 2. Configuração de segredos
-        CREDENTIALS_PATH,          # 3. JSON de credenciais
-        ELEITORES_FILEPATH,        # 4. Dados de entrada (eleitores)
-        GS_FORMULARIO_FILEPATH,    # 5. Script do Google Form
-        GS_PLANILHA_FILEPATH,      # 6. Script do Google Sheets
-        TEMPLATE_FILEPATH,         # 7. Template do e-mail
+    files_to_hash_local = [
+        os.path.abspath(__file__), 
+        ENV_TOML_FILEPATH,         
+        CREDENTIALS_PATH,          
+        ELEITORES_FILEPATH,        
+        GS_FORMULARIO_FILEPATH,    
+        GS_PLANILHA_FILEPATH,      
+        TEMPLATE_FILEPATH,         
     ]
     
     audit_data = []
-    
-    # 2. Calcula hashes de todos os arquivos de entrada
-    for filepath in files_to_hash:
+    local_hashes_map = {} # Mapa para consulta rápida
+
+    # Calcula Hashes Locais e Prepara Dados
+    for filepath in files_to_hash_local:
         file_hash = generate_hash_of_file(filepath)
         
         if file_hash:
-            # Lógica para definir o nome de exibição (caminho relativo com '/')
+            # Determina o nome de exibição padronizado
             if filepath == os.path.abspath(__file__):
-                display_name = 'src/eleicoes.py' 
+                display_name = 'src/eleicoes.py'
             elif filepath == CREDENTIALS_PATH:
                 display_name = 'config/' + os.path.basename(CREDENTIALS_PATH)
             else:
                 display_name = filepath.replace(os.sep, '/')
                 
-            audit_data.append({
+            entry = {
                 "timestamp": datetime.now().strftime(DATE_FORMAT),
                 "arquivo": display_name,
                 "hash_sha256": file_hash
-            })
+            }
+            audit_data.append(entry)
+            local_hashes_map[display_name] = file_hash
         else:
             print(f"[AVISO] Arquivo não encontrado para auditoria: {filepath.replace(os.sep, '/')} -> Hash não gerado.")
 
-    # 3. Salva em CSV (audit_hashes_timestamp.csv)
+    # LOGGING: 1. Registra todos os hashes locais calculados
+    local_log_message = "AUDITORIA: HASHES LOCAIS CALCULADOS PARA EXECUÇÃO:\n" + "\n".join(
+        [f"  [L] {entry['arquivo'].ljust(35)}: {entry['hash_sha256']}" for entry in audit_data]
+    )
+    log_event(
+        level='INFO', 
+        email="", 
+        user_id="", 
+        message=local_log_message, 
+        is_production=is_production
+    )
+
+    # Busca Hashes do GitHub para Comparação
+    github_hashes_map = fetch_github_hashes(GITHUB_FILES_TO_COMPARE)
+
+    # LOGGING: 2. Registra a comparação Local vs. GitHub
+    comparison_log_message = "AUDITORIA: RESULTADO DA COMPARAÇÃO LOCAL vs. GITHUB\n"
+    all_match_for_log = True
+    for display_name in GITHUB_FILES_TO_COMPARE:
+        local_hash = local_hashes_map.get(display_name, "N/A - Local")
+        github_hash = github_hashes_map.get(display_name, "N/A - GitHub")
+        match_status = "MATCH" if local_hash == github_hash else "DIVERGÊNCIA"
+        comparison_log_message += (
+            f"  [{match_status.ljust(11)}] {display_name.ljust(30)}: "
+            f"LOCAL={local_hash} | GITHUB={github_hash}\n"
+        )
+        if match_status == "DIVERGÊNCIA":
+            all_match_for_log = False
+    
+    # Adiciona o status geral ao log
+    status_geral = 'MATCH' if all_match_for_log else 'DIVERGÊNCIA (Execução Interrompida)'
+    comparison_log_message += f"\n  STATUS GERAL: {status_geral}"
+    
+    log_level = 'ERRO FATAL' if not all_match_for_log else 'INFO'
+    log_event(
+        level=log_level, 
+        email="", 
+        user_id="", 
+        message=comparison_log_message, 
+        is_production=is_production
+    )
+
+    # Salva Hashes Locais em CSV
     try:
-        with open(DYNAMIC_AUDIT_FILEPATH, mode='w', newline='', encoding=ENCODING) as f:
+        with open(DYNAMIC_AUDIT_FILEPATH, mode='w', newline='', encoding=ENCODING) as f: 
             writer = csv.writer(f, delimiter=DELIMITER)
-            
-            # Escreve cabeçalho
             writer.writerow(['timestamp', 'arquivo', 'hash_sha256'])
-            
             for entry in audit_data:
                 writer.writerow([entry['timestamp'], entry['arquivo'], entry['hash_sha256']])
                 
     except Exception as e:
         print(f"[ERRO] Não foi possível salvar arquivo de auditoria '{DYNAMIC_AUDIT_FILEPATH}': {e}")
-        # Aborta a execução para não prosseguir com uma auditoria incompleta
         sys.exit(1)
 
-    # 4. Calcula e adiciona o Meta Hash (agora que o arquivo está SALVO)
+    # Calcula o Meta Hash do Arquivo de Auditoria
     meta_hash = generate_hash_of_file(DYNAMIC_AUDIT_FILEPATH)
-    
+    meta_entry = None
     if meta_hash:
         meta_file_name = DYNAMIC_AUDIT_FILEPATH.replace(os.sep, '/')
-        # Adiciona a entrada do Meta Hash no final para ser impresso
-        audit_data.append({
+        meta_entry = {
             "timestamp": datetime.now().strftime(DATE_FORMAT),
             "arquivo": meta_file_name,
             "hash_sha256": meta_hash
-        })
+        }
+
+    # LOGGING: 3. Registra o Meta Hash
+    meta_log_message = f"AUDITORIA: META HASH GERADO: {meta_file_name} -> {meta_hash}"
+    log_event(
+        level='INFO', 
+        email="", 
+        user_id="", 
+        message=meta_log_message,
+        is_production=is_production
+    )
+
+    # Imprime o Relatório Final
+
+    # Definições de Largura (Otimizadas)
+    COL_FILE = 23
+    COL_COMP = 13
+    COL_FONTE = 6
+    COL_HASH = 64
     
-    # 5. Imprime o Relatório Final
-    print("\n" + "="*104)
-    print("🔐 Relatório de Integridade Criptográfica (SHA-256) 🔐".center(104))
-    print("-" * 104)
+    # Cálculo da Largura Total
+    TOTAL_WIDTH = COL_FILE + 3 + COL_COMP + 3 + COL_FONTE + 3 + COL_HASH + 1
     
-    # Imprime todos os hashes, exceto o último (Meta Hash)
-    if audit_data:
-        # Imprime todos os itens, exceto o último (o Meta Hash)
-        for entry in audit_data[:-1]:
-            print(f"[{entry['arquivo'].ljust(37)}] {entry['hash_sha256']}")
+    # Título Principal
+    print("\n" + "="*116)
+    print("🔐 Relatório de Integridade Criptográfica (SHA-256) 🔐".center(116))
+    print("-" * 116)
+    
+    # A. Verificação dos Códigos-Fonte (Local vs. GitHub)
+    print("\n>>> 📋 A. VERIFICAÇÃO DOS CÓDIGOS-FONTE (Local vs. GitHub) <<<")
+    print("=" * TOTAL_WIDTH)
+    header = f"{'Arquivo'.ljust(COL_FILE)} | {'Comparação'.ljust(COL_COMP)}  | {'Fonte'.ljust(COL_FONTE)} | {'Hash SHA-256'}"
+    print(header)
+    print("=" * TOTAL_WIDTH)
+    
+    all_match = True
+    
+    for display_name in GITHUB_FILES_TO_COMPARE:
+        local_hash = local_hashes_map.get(display_name, "N/A - Local")
+        github_hash = github_hashes_map.get(display_name, "N/A - GitHub")
         
-        # Imprime a linha de separação
+        match = (local_hash == github_hash) and (local_hash != "N/A - Local")
+
+        # Normalização do status
+        if match:
+            status = "✅ MATCH   " 
+        else:
+            status = "❌ DIVERGÊNCIA"
+        
+        # LINHA 1: Local Hash (Completa)
+        line1 = f"{display_name.ljust(COL_FILE)} | {status.ljust(COL_COMP)} | {'Local'.ljust(COL_FONTE)} | {local_hash}"
+        
+        # LINHA 2: GitHub Hash
+        empty_col1 = " " * COL_FILE + " | "
+        empty_col2_with_separator = " " * COL_COMP + "  | "
+        line2 = f"{empty_col1}{empty_col2_with_separator}{'GitHub'.ljust(COL_FONTE)} | {github_hash}"
+        
+        print(line1)
+        print(line2)
+        print("-" * TOTAL_WIDTH)
+
+        if not match:
+            all_match = False
+            
+    # Rodapé da Seção A
+    status_msg = '✅ Todos os arquivos de código fonte públicos correspondem.' if all_match else '❌ ALERTA: HÁ DIVERGÊNCIAS NOS CÓDIGOS-FONTE. EXECUÇÃO INTERROMPIDA.'
+    print(f"STATUS GERAL DA COMPARAÇÃO: {status_msg}".center(TOTAL_WIDTH))
+    print("=" * TOTAL_WIDTH)
+    
+    # B. Arquivos de Dados Sensíveis e Configuração (Apenas Local)
+    LOCAL_ONLY_WIDTH = COL_FILE + 3 + COL_HASH
+    print("\n>>> 💾 B. ARQUIVOS DE DADOS SENSÍVEIS E CONFIGURAÇÃO (Apenas Local) <<<")
+    print("-" * LOCAL_ONLY_WIDTH) 
+    
+    local_only_files = [
+        entry for entry in audit_data 
+        if entry['arquivo'] not in GITHUB_FILES_TO_COMPARE
+    ]
+
+    for entry in local_only_files:
+        # Ajuste a impressão aqui para usar COL_FILE e o separador
+        print(f"{entry['arquivo'].ljust(COL_FILE)} | {entry['hash_sha256']}") 
+    print("-" * LOCAL_ONLY_WIDTH, "\n")
+
+    # C. Meta Hash
+    print(f">>> 🔑 C. META HASH - Arquivo com os hashes para auditoria dos arquivos executados <<<")
+
+    if meta_entry:
         print("-" * 104)
-
-        # Imprime a mensagem de salvamento
-        print(f"📝 Hashes de auditoria salvos em '{DYNAMIC_AUDIT_FILEPATH.replace(os.sep, '/')}'")
-
-        # Imprime o Meta Hash (último item da lista)
-        meta_entry = audit_data[-1]
-        print(f"[{meta_entry['arquivo'].ljust(37)}] {meta_entry['hash_sha256']}")
-    else:
-        print("Nenhum arquivo auditado com sucesso.".center(104))
+        print(f"{meta_entry['arquivo'].ljust(23)} | {meta_entry['hash_sha256']}")
         
     print("=" * 104)
+
+    # Interrompe por Segurança (Fail-Fast) se houver divergências entre os códigos-fonte
+    if not all_match:
+        sys.exit(1)
 
 def is_valid_email(email: str) -> bool:
     """Valida formato básico de e-mail para evitar rejeição SMTP."""
@@ -464,7 +654,8 @@ def log_event(level: str, email: str, user_id: str, message: str, is_production:
                 writer.writerow(LogEntry.__annotations__.keys())
             writer.writerow(entry)
     except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha no log: {e}")
+        print(f"[ERRO FATAL] Falha INESPERADA ao escrever no log: {e}")
+        sys.exit(1)
 
 def save_enviados_atomically(registros: List[RegistroEnvio]) -> None:
     """Salva a lista completa de registros de forma atômica."""
@@ -737,149 +928,166 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
     print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
 
 def main():
-    # 0. Configuração de Argumentos
+    # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
     parser.add_argument('destinatario', nargs='?', default='TODOS', help="E-mail do eleitor (ou 'TODOS') para processamento.")
     parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
     args = parser.parse_args()
 
-    # 1. Registro do Tempo de Início
-    start_time = datetime.now()
-    print("="*50)
-    print(f"[{start_time.strftime(DATE_FORMAT)}] ⏱️ INÍCIO da execução do script.")
-    print("="*50)
-
-    log_event(
-        level="INFO", 
-        email="", 
-        user_id="SYSTEM", 
-        message=f"INÍCIO da execução do script. Modo Produção: {args.production}", 
-        is_production=args.production
-    )
-
-    # 2. Executa Auditoria de Arquivos (Para o vídeo/registro)
-    generate_audit_hashes()
-
-    # 3. Alertas de Segurança e Confirmação
-    if args.production:
-        print("\n🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
-        print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
-        time.sleep(5)
-    else:
-        print("\n🧪 MODO DE TESTE (Simulação de E-mail) 🧪")
-        print("Planilha será atualizada, e-mails NÃO serão enviados (apenas simulados).")
-
-    if args.resend:
-        print("\n⚠️ ALERTA: MODO REENVIO FORÇADO (--resend) ATIVADO! ⚠️")
-        print("Todas as chaves serão REGERADAS. As credenciais antigas serão INVALIDADAS.")
-        
-        # Confirmação explícita no terminal (Segurança máxima)
-        confirmation = input("Tem certeza que deseja continuar? (digite 'SIM' para prosseguir): ")
-        if confirmation.upper() != 'SIM':
-            print("\n[CANCELADO] Execução interrompida pelo usuário. Nenhuma chave foi alterada.")
-            return
-        
-    print("\n" + "="*50 + "\n")
-    
+    # --- NOVO: INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
+    tee_output = None
     try:
-        sheet_service = GoogleSheetsService(SPREADSHEET_ID)
-        eleitores = load_eleitores()
+        # 1. Configura o Tee logo após o parsing
+        tee_output = Tee(TERMINAL_LOG_FILEPATH)
+        sys.stdout = tee_output 
+
+        # 2. Registro do Tempo de Início (com separador robusto)
+        start_time = datetime.now()
         
-        if not eleitores:
-            print("[AVISO] Nenhum eleitor encontrado.")
-            return
-
-        targets = []
-        if args.destinatario.upper() == 'TODOS':
-            targets = eleitores
-        else:
-            found = next((e for e in eleitores if e.email == args.destinatario), None)
-            if found:
-                targets = [found]
-                args.resend = True 
-            else:
-                print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
-                return
-
-        # 4. Lógica de embaralhamento criptograficamente seguro (não-reprodutível)
-        # Usa SystemRandom do módulo secrets para garantir que o embaralhamento seja baseado na entropia do SO.
-        if len(targets) > 1:
-            secrets.SystemRandom().shuffle(targets)
-            
-            print(f"[INFO] Ordem de processamento embaralhada de forma CRIPTOGRAFICAMENTE SEGURA para {len(targets)} eleitor(es).")
-            print("[INFO] A ordem é irreprodutível e garante a máxima proteção contra inferência de ID/Chave.")
-
-        print(f"[INFO] Iniciando processamento de {len(targets)} eleitor(es)...")
+        # Prints que vão para o terminal E para o log
+        print("\n" + "#"*58)
+        print(f"[{start_time.strftime(DATE_FORMAT)}] >>> INÍCIO da execução do script <<<")
+        print("#"*58)
         
-        for eleitor in targets:
-            process_eleitor(eleitor, sheet_service, args.resend, args.production)
-
-        # 5. Atualização da flag de apuração (run once)
-        # O "Cutucão" para o Apps Script é feito APENAS UMA ÚNICA VEZ
-        if len(targets) > 0:
-            timestamp = datetime.now().strftime(DATE_FORMAT)
-            
-            # Combina o nome da aba e a célula no formato A1
-            range_a1_notation = f"{APPS_SCRIPT_FLAG_CELL}"
-
-            # Chama a função de atualização via API uma única vez
-            sheet_service.update_cell(range_a1_notation, timestamp)
-            
-            # Log corrigido, referenciando a função triggerApuracao
-            log_event(
-                level="INFO", 
-                email="", 
-                user_id="SYSTEM", 
-                message=f"Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)", 
-                is_production=args.production
-            )
-            print(f"[API SCRIPT] Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)")
-
-    except KeyboardInterrupt:
-        print("\n[INTERRUPÇÃO] Processamento cancelado pelo usuário.")
-        log_event(
-            level="WARNING", 
-            email="", 
-            user_id="SYSTEM", 
-            message="Processamento interrompido pelo usuário (Ctrl+C).", 
-            is_production=args.production
-        )
-    
-    except Exception as e:
-        print(f"\n[ERRO FATAL] Ocorreu um erro não tratado: {e}")
-        log_event(
-            level="ERROR", 
-            email="", 
-            user_id="SYSTEM", 
-            message=f"ERRO FATAL: {e}", 
-            is_production=args.production
-        )
-    
-    finally:
-        # 4. Registro do Tempo de Fim e Duração
-        end_time = datetime.now()
-        duration = end_time - start_time
-        
-        total_seconds = duration.total_seconds()
-        hours = int(total_seconds // 3600)
-        minutes = int((total_seconds % 3600) // 60)
-        seconds = total_seconds % 60
-        
-        duration_str = f"{hours:02d}:{minutes:02d}:{seconds:05.2f}"
-        
-        print("\n" + "="*50)
-        print(f"[{end_time.strftime(DATE_FORMAT)}] 🏁 FIM da execução do script.")
-        print(f"⏳ DURAÇÃO TOTAL: {duration_str}")
-        print("="*50)
-
+        # Log event inicial
         log_event(
             level="INFO", 
             email="", 
             user_id="SYSTEM", 
-            message=f"FIM da execução do script. Duração: {duration_str}", 
+            message=f"INÍCIO da execução do script. Modo Produção: {args.production}", 
             is_production=args.production
         )
+
+        # 3. Executa Auditoria de Arquivos
+        generate_audit_hashes(args.production)
+
+        # 4. Alertas de Segurança e Confirmação
+        if args.production:
+            print("\n🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
+            print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
+            time.sleep(5)
+        else:
+            print("\n🧪 MODO DE TESTE (Simulação de E-mail) 🧪")
+            print("Planilha será atualizada, e-mails NÃO serão enviados (apenas simulados).")
+
+        if args.resend:
+            print("\n⚠️ ALERTA: MODO REENVIO FORÇADO (--resend) ATIVADO! ⚠️")
+            print("Todas as chaves serão REGERADAS. As credenciais antigas serão INVALIDADAS.")
+            
+            # Confirmação explícita no terminal (Segurança máxima)
+            confirmation = input("Tem certeza que deseja continuar? (digite 'SIM' para prosseguir): ")
+            if confirmation.upper() != 'SIM':
+                print("\n[CANCELADO] Execução interrompida pelo usuário. Nenhuma chave foi alterada.")
+                return
+            
+        print("\n" + "="*50 + "\n")
+        
+        # O bloco try/except/finally original do usuário (Lógica Principal)
+        try:
+            sheet_service = GoogleSheetsService(SPREADSHEET_ID)
+            eleitores = load_eleitores()
+            
+            if not eleitores:
+                print("[AVISO] Nenhum eleitor encontrado.")
+                return
+
+            targets = []
+            if args.destinatario.upper() == 'TODOS':
+                targets = eleitores
+            else:
+                found = next((e for e in eleitores if e.email == args.destinatario), None)
+                if found:
+                    targets = [found]
+                    args.resend = True  
+                else:
+                    print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
+                    return
+
+            # 4. Lógica de embaralhamento criptograficamente seguro (não-reprodutível)
+            if len(targets) > 1:
+                secrets.SystemRandom().shuffle(targets)
+                
+                print(f"[INFO] Ordem de processamento embaralhada de forma CRIPTOGRAFICAMENTE SEGURA para {len(targets)} eleitor(es).")
+                print("[INFO] A ordem é irreprodutível e garante a máxima proteção contra inferência de ID/Chave.")
+
+            print(f"[INFO] Iniciando processamento de {len(targets)} eleitor(es)...")
+            
+            for eleitor in targets:
+                process_eleitor(eleitor, sheet_service, args.resend, args.production)
+
+            # 5. Atualização da flag de apuração (run once)
+            if len(targets) > 0:
+                timestamp = datetime.now().strftime(DATE_FORMAT)
+                range_a1_notation = f"{APPS_SCRIPT_FLAG_CELL}"
+                sheet_service.update_cell(range_a1_notation, timestamp)
+                
+                log_event(
+                    level="INFO", 
+                    email="", 
+                    user_id="SYSTEM", 
+                    message=f"Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)", 
+                    is_production=args.production
+                )
+                print(f"[API SCRIPT] Gatilho Sheets API acionado para {range_a1_notation} via triggerApuracao. (Disparo ÚNICO)")
+
+        except KeyboardInterrupt:
+            print("\n[INTERRUPÇÃO] Processamento cancelado pelo usuário.")
+            log_event(
+                level="WARNING", 
+                email="", 
+                user_id="SYSTEM", 
+                message="Processamento interrompido pelo usuário (Ctrl+C).", 
+                is_production=args.production
+            )
+        
+        except Exception as e:
+            print(f"\n[ERRO FATAL] Ocorreu um erro não tratado: {e}")
+            log_event(
+                level="ERROR", 
+                email="", 
+                user_id="SYSTEM", 
+                message=f"ERRO FATAL: {e}", 
+                is_production=args.production
+            )
+        
+        finally:
+            # 6. Registro do Tempo de Fim e Duração (Calculado após a lógica principal)
+            end_time = datetime.now()
+            duration = end_time - start_time
+            
+            total_seconds = duration.total_seconds()
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            seconds = total_seconds % 60
+            
+            duration_str = f"{hours:02d}:{minutes:02d}:{seconds:05.2f}"
+            
+            print("\n" + "="*50)
+            print(f"[{end_time.strftime(DATE_FORMAT)}] 🏁 FIM da execução do script.")
+            print(f"⏳ DURAÇÃO TOTAL: {duration_str}")
+            print("="*50)
+
+            # Log event final (já no log de auditoria)
+            log_event(
+                level="INFO", 
+                email="", 
+                user_id="SYSTEM", 
+                message=f"FIM da execução do script. Duração: {duration_str}. Log completo em {os.path.basename(TERMINAL_LOG_FILEPATH)}",
+                is_production=args.production
+            )
+
+    # --- FIM DO REDIRECIONAMENTO DE SAÍDA (Garante Cleanup) ---
+    finally:
+        if tee_output:
+            # Escreve um separador claro no arquivo ANTES de restaurar o stdout
+            tee_output.write(f"\n[{datetime.now().strftime(DATE_FORMAT)}] <<< FIM DA EXECUÇÃO >>>\n\n")
+
+            # 1. Restaura o sys.stdout original
+            sys.stdout = tee_output.stdout 
+            
+            # 2. Fecha o arquivo de log do terminal
+            tee_output.close()
 
 if __name__ == "__main__":
     main()

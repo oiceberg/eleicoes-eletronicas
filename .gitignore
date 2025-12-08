@@ -3,6 +3,7 @@
 *.json
 *.toml
 *.7z
+*.txt
 
 !*.csv.example
 !*.json.example
