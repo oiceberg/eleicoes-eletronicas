@@ -82,7 +82,7 @@ SMTP_HOST: Final[str] = "smtp.hostinger.com"
 SMTP_PORT: Final[int] = 465
 SMTP_USER: Final[str] = "comissaoeleitoral@agesp.org.br"
 FROM_NAME: Final[str] = "Comissão Eleitoral AGESP"
-SUBJECT: Final[str]   = "TESTE – Eleições AGESP 2025 – Suas credenciais para votação"
+SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação"
 
 # Google Forms
 BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
