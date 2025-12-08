@@ -930,9 +930,9 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
 def main():
     # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
-    parser.add_argument('destinatario', nargs='?', default='TODOS', help="E-mail do eleitor (ou 'TODOS') para processamento.")
-    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
+    parser.add_argument('destinatario', nargs='?', default='TODOS', help="eleitor@email.com.br (ou 'TODOS') para processamento.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
+    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
     args = parser.parse_args()
 
     # --- NOVO: INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
