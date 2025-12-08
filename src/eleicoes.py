@@ -516,7 +516,7 @@ def generate_audit_hashes(is_production: bool) -> None:
             all_match = False
             
     # Rodapé da Seção A
-    status_msg = '✅ Todos os arquivos de código fonte públicos correspondem.' if all_match else '❌ ALERTA: HÁ DIVERGÊNCIAS NOS CÓDIGOS-FONTE. EXECUÇÃO INTERROMPIDA.'
+    status_msg = '✅ Todos os arquivos de código-fonte públicos correspondem.' if all_match else '❌ ALERTA: HÁ DIVERGÊNCIAS NOS CÓDIGOS-FONTE. EXECUÇÃO INTERROMPIDA.'
     print(f"STATUS GERAL DA COMPARAÇÃO: {status_msg}".center(TOTAL_WIDTH))
     print("=" * TOTAL_WIDTH)
     
