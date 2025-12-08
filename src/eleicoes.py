@@ -1,5 +1,6 @@
 """
 Script Name: eleicoes.py
+Versão: 1.1
 Date: 2025-12-08
 Authors:
     - Leandro Pires Salvador (leandrosalvador@protonmail.com, leandrosalvador@gmail.com)
