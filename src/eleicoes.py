@@ -83,6 +83,7 @@ SMTP_PORT: Final[int] = 465
 SMTP_USER: Final[str] = "comissaoeleitoral@agesp.org.br"
 FROM_NAME: Final[str] = "Comissão Eleitoral AGESP"
 SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação"
+EMAIL_SEND_INTERVAL_SECONDS = 5.0
 
 # Google Forms
 BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
@@ -908,25 +909,43 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
         print(f"[ERRO CRÍTICO] Falha ao atualizar Google Sheets para {eleitor.email}: {e}")
         return # Aborta registro local se Sheets falhou
 
-    # 5. Atualiza Registro Local
-    new_generation = (registro_atual.generation + 1) if registro_atual else 1
+    # 5. Atualiza Registro Local (COM HISTÓRICO)
     
-    # Remove registros antigos do mesmo eleitor
-    registros_limpos = [r for r in registros_antigos if r.email != eleitor.email]
+    # a. Filtra todo o histórico deste usuário para calcular a geração correta
+    historico_usuario = [r for r in registros_antigos if r.email == eleitor.email]
     
-    # Adiciona o novo registro (limpando o antigo)
-    registros_limpos.append(RegistroEnvio(
+    if historico_usuario:
+        # Pega a maior geração existente e soma 1
+        new_generation = max(r.generation for r in historico_usuario) + 1
+    else:
+        new_generation = 1
+    
+    # b. Atualiza o status dos registros antigos para Inativo (is_active = False)
+    # Como estamos manipulando objetos dentro da lista 'registros_antigos', 
+    # a alteração reflete na lista principal.
+    for r in historico_usuario:
+        r.is_active = False
+
+    # c. Adiciona o novo registro diretamente à lista COMPLETA (sem limpar os antigos)
+    registros_antigos.append(RegistroEnvio(
         timestamp=datetime.now().strftime(DATE_FORMAT),
         email=eleitor.email,
         user_id=keys.user_id,
         pub_key=keys.pub_key,
         generation=new_generation,
-        is_active=True,
+        is_active=True,         # Apenas o novo é ativo
         is_delivered=is_delivered,
         is_production=production
     ))
-    save_enviados_atomically(registros_limpos)
+    
+    # d. Salva a lista completa (com histórico atualizado e o novo registro)
+    save_enviados_atomically(registros_antigos)
+
     print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
+
+    if production:
+        print(f"[PAUSA SMTP] Aguardando {EMAIL_SEND_INTERVAL_SECONDS} segundos antes do próximo eleitor...")
+        time.sleep(EMAIL_SEND_INTERVAL_SECONDS)
 
 def main():
     # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
@@ -961,12 +980,14 @@ def main():
         )
 
         # 3. Executa Auditoria de Arquivos
-        generate_audit_hashes(args.production)
+        # generate_audit_hashes(args.production)
 
         # 4. Alertas de Segurança e Confirmação
         if args.production:
             print("\n🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
             print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
+            print(f"[PAUSA SMTP] Aguardando {EMAIL_SEND_INTERVAL_SECONDS} entre envios de e-mails.")
+
             time.sleep(5)
         else:
             print("\n🧪 MODO DE TESTE (Simulação de E-mail) 🧪")
