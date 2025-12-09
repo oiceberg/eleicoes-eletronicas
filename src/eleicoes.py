@@ -694,18 +694,27 @@ def log_event(level: str, email: str, user_id: str, message: str, is_production:
         sys.exit(1)
 
 def save_enviados_atomically(registros: List[RegistroEnvio]) -> None:
-    """Salva a lista completa de registros de forma atômica."""
+    """
+    Salva a lista completa de registros de forma atômica.
+    
+    Observação: O bloco try/except foi removido. Qualquer falha 
+    (ex: Acesso Negado) é lançada diretamente para o caller, 
+    onde o Fail-Fast obrigatório está implementado.
+    """
     temp_filepath = ENVIADOS_FILEPATH + '.tmp'
-    try:
-        with open(temp_filepath, mode='w', newline='', encoding=ENCODING) as f:
-            writer = csv.writer(f, delimiter=DELIMITER)
-            writer.writerow(RegistroEnvio.__annotations__.keys()) # Escreve cabeçalho
-            for reg in registros:
-                writer.writerow(list(asdict(reg).values()))
-        
-        os.replace(temp_filepath, ENVIADOS_FILEPATH)
-    except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha ao salvar registros de envio: {e}")
+    
+    # 1. Escreve no arquivo temporário. Se falhar, lança a exceção.
+    with open(temp_filepath, mode='w', newline='', encoding=ENCODING) as f:
+        writer = csv.writer(f, delimiter=DELIMITER)
+        writer.writerow(RegistroEnvio.__annotations__.keys()) # Escreve cabeçalho
+        for reg in registros:
+            # Usando asdict(reg) é uma suposição, mantenha o que for correto para você
+            writer.writerow(list(asdict(reg).values())) 
+    
+    # 2. Substituição atômica. Se falhar, lança a exceção (ex: WinError 5).
+    os.replace(temp_filepath, ENVIADOS_FILEPATH)
+    
+    # Se a função chegar aqui, a operação foi bem-sucedida.
 
 
 # --- 6. GERAÇÃO DE CHAVES E ENCRIPTAÇÃO ---
@@ -850,6 +859,13 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
                     
                     success = True
                     log_msg = "E-mail enviado com sucesso (SMTP)."
+
+                    # ----------------------------------------------------
+                    # >>> PONTO DE INTERRUPÇÃO PARA TESTE (PRODUÇÃO) <<<
+                    # ATENÇÃO: COMENTE ou REMOVA esta linha após o teste!
+                    # print("[TESTE DE FALHA] PRODUÇÃO: Interrompendo após o envio SMTP.")
+                    # sys.exit(1)
+                    # ----------------------------------------------------
             
             # Tratamento de Erros Detalhado (Mantido robusto)
             except smtplib.SMTPAuthenticationError:
@@ -883,86 +899,170 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
 
 # --- 8. FLUXO PRINCIPAL ---
 
+import sys 
+import time
+from datetime import datetime
+
+# Presumindo que estas classes/funções/constantes globais existam e estejam importadas no topo do seu arquivo:
+# Eleitor, KeyPair, RegistroEnvio, GoogleSheetsService, load_enviados, generate_key_pair, 
+# save_enviados_atomically, send_email, log_event, DATE_FORMAT, SHEET_NAME_PUB_KEY, 
+# SYSTEM_LOG_USER, SYSTEM_LOG_EMAIL, ...
+
 def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_resend: bool, production: bool) -> None:
     """
-    Processa um único eleitor: verifica status, gera chaves e envia e-mail.
+    Processa um único eleitor com persistência segura (Write-Ahead Logging).
+    
+    1. Gera chaves e salva em disco como PENDENTE (is_delivered=False). 
+       -> FAIL-FAST OBRIGATÓRIO AQUI.
+    2. Envia o e-mail (Ação de Risco).
+    3. Se sucesso, atualiza o Google Sheets.
+    4. Atualiza disco para ENTREGUE (is_delivered=True) e ATIVO (is_active=True).
     """
+    
+    # 0. Preparação de Dados
     registros_antigos = load_enviados()
     registro_atual = next((r for r in registros_antigos if r.email == eleitor.email), None)
     
-    # 1. Verifica se já foi enviado e se não é reenvio forçado
-    if registro_atual and not force_resend:
-        print(f"[PULAR] Eleitor {eleitor.nome} ({eleitor.email}) já processado (Geração {registro_atual.generation}). Use --resend para reenviar.")
+    # 1. Checagem de Reenvio
+    if registro_atual and registro_atual.is_delivered and not force_resend:
+        print(f"[PULAR] Eleitor {eleitor.nome} ({eleitor.email}) já processado com sucesso (Geração {registro_atual.generation}).")
         return
 
-    # 2. Geração da Nova Chave
+    # 2. Geração de Chaves
     keys = generate_key_pair()
+    new_generation = (registro_atual.generation + 1) if registro_atual else 1
+    timestamp_now = datetime.now().strftime(DATE_FORMAT)
+
+    # 3. PERSISTÊNCIA ETAPA 1: REGISTRO "PENDENTE" (FAIL-FAST)
+    # Criamos o registro marcando como NÃO ENTREGUE e NÃO ATIVO.
+    novo_registro = RegistroEnvio(
+        timestamp=timestamp_now,
+        email=eleitor.email,
+        user_id=keys.user_id,
+        pub_key=keys.pub_key,
+        generation=new_generation,
+        is_active=False,      # Ainda não ativada no Sheets
+        is_delivered=False,   # Ainda não enviado
+        is_production=production
+    )
+
+    # Remove registro antigo da memória e adiciona o novo (Pendente)
+    lista_atualizada = [r for r in registros_antigos if r.email != eleitor.email]
+    lista_atualizada.append(novo_registro)
     
-    # 3. Tentativa de Envio de E-mail
+    # === BLOCO FAIL-FAST ===
+    try:
+        # Tenta salvar o estado PENDENTE no disco
+        save_enviados_atomically(lista_atualizada) 
+        
+    except Exception as e:
+        # ERRO FATAL: Falha na persistência. Devemos interromper imediatamente.
+        error_msg = f'ERRO FATAL: Falha ao persistir registro PENDENTE em disco (Etapa 1). O script não pode prosseguir sem registro de auditoria. Erro: {e}'
+        
+        print(f"\n[ERRO CRÍTICO DE PERSISTÊNCIA] {error_msg}")
+        log_event(
+            level='ERRO FATAL', 
+            email=eleitor.email, 
+            user_id=keys.user_id, 
+            message=error_msg, 
+            is_production=production
+        )
+        
+        # Interrupção GARANTIDA
+        print("\n[INTERRUPÇÃO FORÇADA] Script encerrado devido a falha de persistência de registro PENDENTE.")
+        sys.exit(1) 
+    # =======================
+
+    # Log da tentativa (Só executa se o salvamento PENDENTE foi bem-sucedido)
+    log_event(
+        level='INFO', 
+        email=eleitor.email, 
+        user_id=keys.user_id, 
+        message=f'Geradas chaves (Gen {new_generation}). Registro PENDENTE salvo. Tentando envio...', 
+        is_production=production
+    )
+
+    # 4. AÇÃO DE RISCO: Envio de E-mail
     is_delivered = send_email(eleitor, keys, production)
 
-    if not is_delivered and production:
-        # Se falhou em produção, não registra a chave no Sheets e aborta o registro local.
-        print(f"[AVISO] Chave não registrada no Sheets devido à falha de envio para {eleitor.email}.")
+    # 5. TRATAMENTO DO RESULTADO (Se falhou o envio, apenas registra o estado e sai)
+    if not is_delivered:
+        print(f"[AVISO] Falha no envio para {eleitor.email}. Registro PENDENTE mantido para reprocessamento.")
+        # O registro PENDENTE já está no CSV (is_delivered=False). Nada mais precisa ser feito aqui.
         return
 
-    # 4. Atualização Google Sheets (Sempre Real - Chaves são registradas mesmo em modo TESTE)
-    try:
-        # a. Invalida anteriores (com delay se necessário)
-        for r in registros_antigos:
-            if r.email == eleitor.email and sheet_service.invalidate_old_key(r.user_id):
-                time.sleep(3.0) # Delay para cota de escrita
+    # SE CHEGAMOS AQUI, O E-MAIL FOI ENVIADO (ou simulado) COM SUCESSO.
 
-        # b. Insere nova chave
-        now_str = datetime.now().strftime(DATE_FORMAT)
+    # 6. ATUALIZAÇÃO GOOGLE SHEETS (Se falhar aqui, o estado é de alto risco)
+    try:
+        # a. Invalida anteriores no Sheets
+        if registro_atual:
+             if sheet_service.invalidate_old_key(registro_atual.user_id):
+                time.sleep(3.0) 
+
+        # b. Insere nova chave no Sheets
         sheet_service.append_row(SHEET_NAME_PUB_KEY, [
             keys.user_id,
             keys.pub_key,
-            True,
+            True,       # ATIVA
             production,
-            now_str,
-            '' # Coluna de t_desativacao (vazio na inserção)
+            timestamp_now,
+            '' 
         ])
-        time.sleep(2.0) # Delay pós-escrita
+        time.sleep(2.0)
 
         log_event(
             level='INFO', 
             email=eleitor.email, 
             user_id=keys.user_id, 
-            message='Google Sheets atualizado.', 
+            message='Google Sheets atualizado com nova chave ativa.', 
             is_production=production
         )
-
+        
+        # Estado de sucesso total
+        novo_registro.is_active = True 
+        
     except Exception as e:
+        # Se falhar no Sheets, o usuário recebeu o email (is_delivered=True) mas a chave não foi ativada.
+        # Isto é um ERRO CRÍTICO que exige atenção manual.
         log_event(
-            level='ERRO',
+            level='ERRO CRÍTICO',
             email=eleitor.email,
             user_id=keys.user_id,
-            message=f'Falha crítica no Sheets API: {e}',
+            message=f'E-mail enviado, mas falha ao salvar no Sheets (chave pode estar INATIVA). Erro: {e}',
             is_production=production
         )
-        print(f"[ERRO CRÍTICO] Falha ao atualizar Google Sheets para {eleitor.email}: {e}")
-        return # Aborta registro local se Sheets falhou
+        print(f"[ERRO CRÍTICO] E-mail enviado para {eleitor.email}, mas falha ao salvar no Sheets: {e}")
+        
+        # Atualizamos o CSV para refletir que o e-mail foi enviado (mas a chave NÃO está ativa)
+        novo_registro.is_active = False 
 
-    # 5. Atualiza Registro Local
-    new_generation = (registro_atual.generation + 1) if registro_atual else 1
+    # 7. PERSISTÊNCIA ETAPA 2: SUCESSO TOTAL (COMMIT)
+    # Atualiza o objeto em memória para refletir que o e-mail foi entregue (independentemente do Sheets)
+    novo_registro.is_delivered = True
     
-    # Remove registros antigos do mesmo eleitor
-    registros_limpos = [r for r in registros_antigos if r.email != eleitor.email]
-    
-    # Adiciona o novo registro (limpando o antigo)
-    registros_limpos.append(RegistroEnvio(
-        timestamp=datetime.now().strftime(DATE_FORMAT),
-        email=eleitor.email,
-        user_id=keys.user_id,
-        pub_key=keys.pub_key,
-        generation=new_generation,
-        is_active=True,
-        is_delivered=is_delivered,
-        is_production=production
-    ))
-    save_enviados_atomically(registros_limpos)
-    print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
+    # Salvamos novamente no disco para confirmar o estado final (Entregue e/ou Ativo)
+    try:
+        save_enviados_atomically(lista_atualizada)
+        print(f"[SUCESSO] Processamento de {eleitor.nome} concluído. Geração: {new_generation}")
+    except Exception as e:
+        # Falhar no COMMIT final é menos grave, pois o e-mail já foi enviado.
+        # O estado final ainda será PENDENTE, mas com log de envio.
+        # O script deve pelo menos logar o erro, mas a interrupção não é obrigatória.
+        error_msg = f'ERRO: Falha ao persistir registro FINAL (COMMIT). Estado pode ser inconsistente no CSV. Erro: {e}'
+        print(f"[ERRO] {error_msg}")
+        log_event(
+            level='ERROR',
+            email=eleitor.email,
+            user_id=keys.user_id,
+            message=error_msg,
+            is_production=production
+        )
+
+# NOTA IMPORTANTE SOBRE save_enviados_atomically:
+# Garanta que a sua função `save_enviados_atomically` **NÃO** tenha um `try...except` que capture e ignore a exceção
+# `[WinError 5] Acesso negado`, mas sim **re-lance** essa exceção (usando `raise e`) para que o `process_eleitor`
+# possa capturá-la no bloco de Fail-Fast da Etapa 3.
 
 def main():
     # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
