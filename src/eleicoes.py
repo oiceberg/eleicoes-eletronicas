@@ -319,8 +319,6 @@ def fetch_github_hashes(files_to_check: list[str]) -> dict:
         
     return github_hashes
 
-import hashlib # Garanta que hashlib está importado
-
 def generate_hash_of_file(filepath: str) -> Optional[str]:
     """
     Calcula o hash SHA-256 de um arquivo em disco, forçando a normalização
@@ -349,18 +347,19 @@ def generate_audit_hashes(is_production: bool) -> None:
     """
     Gera hashes SHA-256 dos arquivos críticos, imprime na tela e salva em CSV para auditoria.
     Inclui uma comparação explícita com os hashes do GitHub.
+    Em caso de divergência, solicita confirmação para interromper a execução.
     """
     now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
     DYNAMIC_AUDIT_FILEPATH = os.path.join('data', f"audit_hashes_{now_str}.csv")
 
     files_to_hash_local = [
         os.path.abspath(__file__), 
-        ENV_TOML_FILEPATH,         
-        CREDENTIALS_PATH,          
-        ELEITORES_FILEPATH,        
-        GS_FORMULARIO_FILEPATH,    
-        GS_PLANILHA_FILEPATH,      
-        TEMPLATE_FILEPATH,         
+        ENV_TOML_FILEPATH, 
+        CREDENTIALS_PATH, 
+        ELEITORES_FILEPATH, 
+        GS_FORMULARIO_FILEPATH, 
+        GS_PLANILHA_FILEPATH, 
+        TEMPLATE_FILEPATH, 
     ]
     
     audit_data = []
@@ -389,10 +388,11 @@ def generate_audit_hashes(is_production: bool) -> None:
         else:
             print(f"[AVISO] Arquivo não encontrado para auditoria: {filepath.replace(os.sep, '/')} -> Hash não gerado.")
 
-    # LOGGING: 1. Registra todos os hashes locais calculados
+    ### LOGGING: 1. Registra todos os hashes locais calculados
     local_log_message = "AUDITORIA: HASHES LOCAIS CALCULADOS PARA EXECUÇÃO:\n" + "\n".join(
         [f"  [L] {entry['arquivo'].ljust(35)}: {entry['hash_sha256']}" for entry in audit_data]
     )
+    # Assumindo email/user_id como SYSTEM_LOG_EMAIL/SYSTEM_LOG_USER
     log_event(
         level='INFO', 
         email="", 
@@ -404,9 +404,11 @@ def generate_audit_hashes(is_production: bool) -> None:
     # Busca Hashes do GitHub para Comparação
     github_hashes_map = fetch_github_hashes(GITHUB_FILES_TO_COMPARE)
 
-    # LOGGING: 2. Registra a comparação Local vs. GitHub
+    ### LOGGING: 2. Registra a comparação Local vs. GitHub
     comparison_log_message = "AUDITORIA: RESULTADO DA COMPARAÇÃO LOCAL vs. GITHUB\n"
-    all_match_for_log = True
+    all_match = True # Variável local para controle da lógica e da impressão final
+    all_match_for_log = True # Variável para o log, separada para clareza
+    
     for display_name in GITHUB_FILES_TO_COMPARE:
         local_hash = local_hashes_map.get(display_name, "N/A - Local")
         github_hash = github_hashes_map.get(display_name, "N/A - GitHub")
@@ -417,12 +419,13 @@ def generate_audit_hashes(is_production: bool) -> None:
         )
         if match_status == "DIVERGÊNCIA":
             all_match_for_log = False
+            all_match = False
     
     # Adiciona o status geral ao log
-    status_geral = 'MATCH' if all_match_for_log else 'DIVERGÊNCIA (Execução Interrompida)'
+    status_geral = 'MATCH' if all_match_for_log else 'DIVERGÊNCIA' # Removemos "Execução Interrompida" daqui
     comparison_log_message += f"\n  STATUS GERAL: {status_geral}"
     
-    log_level = 'ERRO FATAL' if not all_match_for_log else 'INFO'
+    log_level = 'WARNING' if not all_match_for_log else 'INFO' # Nível 'WARNING' se houver divergência
     log_event(
         level=log_level, 
         email="", 
@@ -430,8 +433,8 @@ def generate_audit_hashes(is_production: bool) -> None:
         message=comparison_log_message, 
         is_production=is_production
     )
-
-    # Salva Hashes Locais em CSV
+    
+    # Salva Hashes Locais em CSV (Lógica Inalterada)
     try:
         with open(DYNAMIC_AUDIT_FILEPATH, mode='w', newline='', encoding=ENCODING) as f: 
             writer = csv.writer(f, delimiter=DELIMITER)
@@ -443,7 +446,7 @@ def generate_audit_hashes(is_production: bool) -> None:
         print(f"[ERRO] Não foi possível salvar arquivo de auditoria '{DYNAMIC_AUDIT_FILEPATH}': {e}")
         sys.exit(1)
 
-    # Calcula o Meta Hash do Arquivo de Auditoria
+    # Calcula o Meta Hash do Arquivo de Auditoria (Lógica Inalterada)
     meta_hash = generate_hash_of_file(DYNAMIC_AUDIT_FILEPATH)
     meta_entry = None
     if meta_hash:
@@ -453,26 +456,24 @@ def generate_audit_hashes(is_production: bool) -> None:
             "arquivo": meta_file_name,
             "hash_sha256": meta_hash
         }
+        
+        ### LOGGING: 3. Registra o Meta Hash
+        meta_log_message = f"AUDITORIA: META HASH GERADO: {meta_file_name} -> {meta_hash}"
+        log_event(
+            level='INFO', 
+            email="", 
+            user_id="", 
+            message=meta_log_message, 
+            is_production=is_production
+        )
 
-    # LOGGING: 3. Registra o Meta Hash
-    meta_log_message = f"AUDITORIA: META HASH GERADO: {meta_file_name} -> {meta_hash}"
-    log_event(
-        level='INFO', 
-        email="", 
-        user_id="", 
-        message=meta_log_message,
-        is_production=is_production
-    )
-
-    # Imprime o Relatório Final
+    # Imprime o Relatório Final (Lógica Inalterada, apenas a variável all_match é usada no status_msg)
 
     # Definições de Largura (Otimizadas)
     COL_FILE = 23
     COL_COMP = 13
     COL_FONTE = 6
     COL_HASH = 64
-    
-    # Cálculo da Largura Total
     TOTAL_WIDTH = COL_FILE + 3 + COL_COMP + 3 + COL_FONTE + 3 + COL_HASH + 1
     
     # Título Principal
@@ -487,7 +488,7 @@ def generate_audit_hashes(is_production: bool) -> None:
     print(header)
     print("=" * TOTAL_WIDTH)
     
-    all_match = True
+    # A variável all_match já foi calculada acima.
     
     for display_name in GITHUB_FILES_TO_COMPARE:
         local_hash = local_hashes_map.get(display_name, "N/A - Local")
@@ -495,16 +496,13 @@ def generate_audit_hashes(is_production: bool) -> None:
         
         match = (local_hash == github_hash) and (local_hash != "N/A - Local")
 
-        # Normalização do status
         if match:
-            status = "✅ MATCH   " 
+            status = "✅ MATCH     "
         else:
             status = "❌ DIVERGÊNCIA"
         
-        # LINHA 1: Local Hash (Completa)
         line1 = f"{display_name.ljust(COL_FILE)} | {status.ljust(COL_COMP)} | {'Local'.ljust(COL_FONTE)} | {local_hash}"
         
-        # LINHA 2: GitHub Hash
         empty_col1 = " " * COL_FILE + " | "
         empty_col2_with_separator = " " * COL_COMP + "  | "
         line2 = f"{empty_col1}{empty_col2_with_separator}{'GitHub'.ljust(COL_FONTE)} | {github_hash}"
@@ -513,11 +511,8 @@ def generate_audit_hashes(is_production: bool) -> None:
         print(line2)
         print("-" * TOTAL_WIDTH)
 
-        if not match:
-            all_match = False
-            
     # Rodapé da Seção A
-    status_msg = '✅ Todos os arquivos de código-fonte públicos correspondem.' if all_match else '❌ ALERTA: HÁ DIVERGÊNCIAS NOS CÓDIGOS-FONTE. EXECUÇÃO INTERROMPIDA.'
+    status_msg = '✅ Todos os arquivos de código-fonte públicos correspondem.' if all_match else '❌ ALERTA: HÁ DIVERGÊNCIAS NOS CÓDIGOS-FONTE. Necessária intervenção.'
     print(f"STATUS GERAL DA COMPARAÇÃO: {status_msg}".center(TOTAL_WIDTH))
     print("=" * TOTAL_WIDTH)
     
@@ -532,7 +527,6 @@ def generate_audit_hashes(is_production: bool) -> None:
     ]
 
     for entry in local_only_files:
-        # Ajuste a impressão aqui para usar COL_FILE e o separador
         print(f"{entry['arquivo'].ljust(COL_FILE)} | {entry['hash_sha256']}") 
     print("-" * LOCAL_ONLY_WIDTH, "\n")
 
@@ -545,9 +539,50 @@ def generate_audit_hashes(is_production: bool) -> None:
         
     print("=" * 104)
 
-    # Interrompe por Segurança (Fail-Fast) se houver divergências entre os códigos-fonte
+    # -----------------------------------------------------------
+    # Controle de Interrupção interativo (Substitui o sys.exit(1))
+    # -----------------------------------------------------------
     if not all_match:
-        sys.exit(1)
+        
+        print("\n" + "!" * 80)
+        print("!!! ALERTA DE SEGURANÇA: DIVERGÊNCIA DE HASH ENCONTRADA NO CÓDIGO FONTE !!!".center(80))
+        print("!!! O código executado (Local) não corresponde ao repositório (GitHub). !!!".center(80))
+        print("!" * 80)
+        
+        # Loga o alerta de divergência antes de pedir a confirmação
+        log_event(
+            level='ALERTA', 
+            email="", 
+            user_id="", 
+            message="ALERTA DE DIVERGÊNCIA DE CÓDIGO FONTE. Necessária intervenção manual.", 
+            is_production=is_production
+        )
+        
+        # Pergunta ao operador o que fazer, exigindo a palavra completa
+        confirmation = input("Deseja interromper a execução? (digite 'INTERROMPER' para sair, ou 'CONTINUAR' para prosseguir): ")
+        
+        if confirmation.upper() != 'CONTINUAR':
+            print("\n[INTERRUPÇÃO FORÇADA] Execução interrompida pelo operador devido à divergência de código-fonte.")
+            log_event(
+                level='CRITICAL', 
+                email="", 
+                user_id="", 
+                message="EXECUÇÃO INTERROMPIDA PELO OPERADOR: Divergência de código confirmada e interrompida.", 
+                is_production=is_production
+            )
+            sys.exit(1)
+        
+        # Se digitou 'CONTINUAR' ou qualquer outra coisa
+        print("\n[CONTINUANDO] Execução prosseguindo, apesar da divergência de código-fonte (Risco aceito pelo operador).")
+        log_event(
+            level='WARNING', 
+            email="", 
+            user_id="", 
+            message="EXECUÇÃO CONTINUADA PELO OPERADOR: Divergência de código ignorada para fins de teste.", 
+            is_production=is_production
+        )
+    
+    return
 
 def is_valid_email(email: str) -> bool:
     """Valida formato básico de e-mail para evitar rejeição SMTP."""
@@ -797,6 +832,7 @@ def send_email(eleitor: Eleitor, keys: KeyPair, is_production: bool) -> bool:
         success = True
         log_msg = "Simulação de envio bem-sucedida."
         log_level = 'INFO'
+
     else:
         # MODO DE PRODUÇÃO: Lógica de envio robusta com tratamento de exceções        
         smtp_password = ENV.get('SMTP_PASSWORD')
@@ -933,10 +969,11 @@ def main():
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
     parser.add_argument('destinatario', nargs='?', default='TODOS', help="eleitor@email.com.br (ou 'TODOS') para processamento.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
-    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
+    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA!")
+    parser.add_argument('--skip-audit', action='store_true', help="Pula a auditoria de hashes com o GitHub para testes locais. NÃO USE EM PRODUÇÃO!")
     args = parser.parse_args()
 
-    # --- NOVO: INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
+    # --- INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
     tee_output = None
     try:
         # 1. Configura o Tee logo após o parsing
@@ -961,7 +998,11 @@ def main():
         )
 
         # 3. Executa Auditoria de Arquivos
-        generate_audit_hashes(args.production)
+        if args.skip_audit:
+            print("\n[AVISO] Auditoria de Hashes (Local vs. GitHub) ignorada (--skip-audit).")
+        else:
+            # A função generate_audit_hashes agora lida com a interrupção/confirmação
+            generate_audit_hashes(args.production)
 
         # 4. Alertas de Segurança e Confirmação
         if args.production:
