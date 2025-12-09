@@ -323,24 +323,54 @@ def generate_hash_of_file(filepath: str) -> Optional[str]:
     """
     Calcula o hash SHA-256 de um arquivo em disco, forçando a normalização
     das quebras de linha para LF (Unix) para garantir compatibilidade com o GitHub.
+    Tenta decodificar primeiro em UTF-8 e, em caso de falha, em CP1252.
     """
-    try:
-        # 1. Abre em modo texto ('r') com newline=None para ler universalmente.
-        #    Isso garante que \r\n (CRLF) e \r ou \n sejam tratados como quebras de linha.
-        with open(filepath, "r", encoding="utf-8", newline=None) as f:
-            # 2. Lê o conteúdo. O Python normaliza as linhas para o padrão \n (LF).
-            content = f.read()
+    
+    # Lista de codificações a serem tentadas, na ordem de preferência
+    encodings_to_try = ["utf-8", "cp1252"]
+    content = None
+    
+    for encoding in encodings_to_try:
+        try:
+            # 1. Abre em modo texto ('r') usando a codificação atual e newline=None
+            with open(filepath, "r", encoding=encoding, newline=None) as f:
+                # 2. Lê o conteúdo. Python normaliza as quebras de linha para \n (LF).
+                content = f.read()
             
-            # 3. Codifica de volta para bytes (UTF-8) para o cálculo do hash
-            content_bytes = content.encode("utf-8")
+            # Se a leitura for bem-sucedida, saímos do loop
+            break
             
-            # 4. Calcula o hash dos bytes normalizados
-            return hashlib.sha256(content_bytes).hexdigest()
-            
-    except FileNotFoundError:
+        except UnicodeDecodeError:
+            # Se falhar a decodificação (e.g., UTF-8 falhando com 'ç'), 
+            # o loop continua para a próxima codificação.
+            continue 
+        except FileNotFoundError:
+            # Se o arquivo não existir, retorna None e para imediatamente
+            return None
+        except Exception as e:
+            # Outros erros (permissão, I/O)
+            print(f"[ERRO HASH] Falha ao calcular hash de {filepath} (Erro fatal de I/O): {e}")
+            return None
+    
+    # ----------------------------------------------------------------------
+    
+    # Verifica se conseguimos ler o conteúdo após tentar todas as codificações
+    if content is None:
+        print(f"[ERRO HASH] Falha ao calcular hash de {filepath}: Não foi possível decodificar o arquivo com UTF-8 ou CP1252.")
         return None
+
+    # 3. Codifica de volta para bytes **UTF-8** para o cálculo do hash
+    # O hash DEVE ser sempre calculado sobre bytes UTF-8 normalizados para garantir
+    # a consistência Local vs. GitHub, independentemente da codificação original.
+    try:
+        content_bytes = content.encode("utf-8")
+        
+        # 4. Calcula o hash dos bytes normalizados
+        return hashlib.sha256(content_bytes).hexdigest()
+        
     except Exception as e:
-        print(f"[ERRO HASH] Falha ao calcular hash de {filepath}: {e}")
+        # Se falhar na codificação final para UTF-8 (improvável, mas possível)
+        print(f"[ERRO HASH] Falha ao codificar conteúdo para SHA-256: {e}")
         return None
 
 def generate_audit_hashes(is_production: bool) -> None:
