@@ -84,6 +84,7 @@ SMTP_USER: Final[str] = "comissaoeleitoral@agesp.org.br"
 FROM_NAME: Final[str] = "Comissão Eleitoral AGESP"
 SUBJECT: Final[str]   = "Eleições AGESP 2025 – Suas credenciais para votação"
 EMAIL_SEND_INTERVAL_SECONDS = 5.0
+EMAIL_COL_NAME        = 'Endereço de e-mail'
 
 # Google Forms
 BASE_FORM_URL: Final[str] = "https://forms.gle/KxS5SK5xcv7RPhew5"
@@ -679,6 +680,48 @@ def save_enviados_atomically(registros: List[RegistroEnvio]) -> None:
     # lançará um PermissionError. Como removemos o try/except, isso parará o script.
     os.replace(temp_filepath, ENVIADOS_FILEPATH)
 
+def update_eleitor_email(old_email: str, new_email: str) -> bool:
+    """
+    Localiza o eleitor pelo e-mail antigo e atualiza para o e-mail novo no CSV.
+    Retorna True se a atualização for bem-sucedida, False caso contrário.
+    """
+    try:
+        # 1. Lê o arquivo (Correção: Usa ENCODING e DELIMITER globais)
+        with open(ELEITORES_FILEPATH, 'r', newline='', encoding=ENCODING) as f:
+            # IMPORTANTE: delimiter=DELIMITER é essencial para arquivos separados por ';'
+            reader = csv.DictReader(f, delimiter=DELIMITER)
+            
+            # Converte para lista para poder modificar e regravar
+            data = list(reader)
+        
+        updated = False
+        
+        # 2. Localiza e corrige o e-mail
+        for row in data:
+            # Garante que a coluna de e-mail existe na leitura
+            if EMAIL_COL_NAME in row and row[EMAIL_COL_NAME] == old_email:
+                row[EMAIL_COL_NAME] = new_email
+                updated = True
+                break
+        
+        if not updated:
+            # Não encontrou o e-mail antigo
+            return False
+
+        # 3. Salva os dados atualizados (Correção: Usa ENCODING e DELIMITER globais)
+        with open(ELEITORES_FILEPATH, 'w', newline='', encoding=ENCODING) as f:
+            writer = csv.DictWriter(f, fieldnames=reader.fieldnames, delimiter=DELIMITER)
+            writer.writeheader()
+            writer.writerows(data)
+            
+        return True
+
+    except FileNotFoundError:
+        print(f"[ERRO] Arquivo CSV não encontrado: {ELEITORES_FILEPATH}")
+        return False
+    except Exception as e:
+        print(f"[ERRO] Erro ao atualizar o CSV: {e}")
+        return False
 
 # --- 6. GERAÇÃO DE CHAVES E ENCRIPTAÇÃO ---
 
@@ -954,15 +997,18 @@ def process_eleitor(eleitor: Eleitor, sheet_service: GoogleSheetsService, force_
         time.sleep(EMAIL_SEND_INTERVAL_SECONDS)
 
 def main():
-    # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
+    # 0. Configuração de Argumentos (REMOÇÃO DA FLAG --resend)
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
     parser.add_argument('destinatario', nargs='?', default='TODOS', help="eleitor@email.com.br (ou 'TODOS') para processamento.")
     parser.add_argument('--replace', nargs=2, metavar=('OLD', 'NEW'), help="Inativa credencial do OLD_EMAIL e envia novas chaves para NEW_EMAIL.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
-    # parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
+    # A flag --resend foi removida para eliminar a funcionalidade de reenvio em massa.
     args = parser.parse_args()
 
-    # --- NOVO: INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
+    # Define args.resend com o valor padrão False para uso posterior
+    args.resend = False
+    
+    # --- INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
     tee_output = None
     try:
         # 1. Configura o Tee logo após o parsing
@@ -989,7 +1035,13 @@ def main():
         # 3. Executa Auditoria de Arquivos
         # generate_audit_hashes(args.production)
 
+        # 4. Inicializa o serviço Sheets logo no início para ser acessível pelo --replace.
+        sheet_service = GoogleSheetsService(SPREADSHEET_ID)
+
+        # 5. Lógica de Substituição de Credencial (--replace)
+        is_replace_operation = False
         if args.replace:
+            is_replace_operation = True
             old_email, new_email = args.replace
             print(f"\n🔄 OPERAÇÃO DE SUBSTITUIÇÃO: {old_email} -> {new_email}")
             
@@ -1003,18 +1055,35 @@ def main():
 
             # 2. Invalida no Google Sheets e Localmente
             print(f"[INFO] Invalidando credencial antiga ({registro_antigo.user_id})...")
+            # Este comando pode falhar por problemas de rede/API.
             sheet_service.invalidate_old_key(registro_antigo.user_id)
-            
+
             for r in registros:
                 if r.email == old_email:
                     r.is_active = False
             save_enviados_atomically(registros)
 
-            # 3. Configura o alvo para ser o NOVO e-mail
-            args.destinatario = new_email
-            args.resend = True # Garante que o script processe mesmo se o e-mail novo já existir (segurança)
+            # --- CORREÇÃO ADICIONADA: ATUALIZAÇÃO DO CSV ---
+            # 3. Correção do E-mail no Eleitores.csv
+            # ELEITORES_FILEPATH deve estar definido no escopo global/módulo.
+            print(f"[INFO] Corrigindo e-mail no arquivo ELEITORES_FILEPATH...")
+            
+            # Chama a função que carrega, atualiza e salva o eleitores.csv
+            if update_eleitor_email(old_email, new_email):
+                # LOG DE SUCESSO (usando print, que é redirecionado)
+                print(f"✅ E-mail corrigido com sucesso: '{old_email}' alterado para '{new_email}' no CSV.")
+            else:
+                # Se falhar a correção do CSV, interrompemos, pois a próxima etapa falhará.
+                print(f"[ERRO] Não foi possível encontrar/corrigir o e-mail '{old_email}' no CSV. Operação abortada.")
+                return 
+            # --- FIM DA CORREÇÃO ADICIONADA ---
 
-        # 4. Alertas de Segurança e Confirmação
+            # 4. Configura o alvo para ser o NOVO e-mail
+            args.destinatario = new_email
+            # Programaticamente, forçamos o resend para que o fluxo principal processe o novo e-mail.
+            args.resend = True 
+
+        # 6. Alertas de Segurança e Confirmação
         if args.production:
             print("\n🚨 MODO DE PRODUÇÃO ATIVADO 🚨")
             print("Envios REAIS de e-mail. Cancelar? (Aperte Ctrl+C em 5 segundos)")
@@ -1025,21 +1094,28 @@ def main():
             print("\n🧪 MODO DE TESTE (Simulação de E-mail) 🧪")
             print("Planilha será atualizada, e-mails NÃO serão enviados (apenas simulados).")
 
-        if args.resend:
-            print("\n⚠️ ALERTA: MODO REENVIO FORÇADO (--resend) ATIVADO! ⚠️")
-            print("Todas as chaves serão REGERADAS. As credenciais antigas serão INVALIDADAS.")
+        # ** IMPLEMENTAÇÃO DA NOVA MEDIDA DE SEGURANÇA MÁXIMA **
+        is_target_all = args.destinatario.upper() == 'TODOS'
+        
+        if is_target_all:
+            # Caso de uso: python eleicoes.py TODOS
+            print("\n[ERRO DE SEGURANÇA MÁXIMA] Tentativa de processar 'TODOS'.")
+            print("O reenvio/processamento em massa está bloqueado para prevenir a geração acidental de novas chaves.")
+            print("Para operações de 'replace' ou reenvio, use o e-mail específico: python eleicoes.py eleitor@email.com")
+            return
             
-            # Confirmação explícita no terminal (Segurança máxima)
-            confirmation = input("Tem certeza que deseja continuar? (digite 'SIM' para prosseguir): ")
-            if confirmation.upper() != 'SIM':
-                print("\n[CANCELADO] Execução interrompida pelo usuário. Nenhuma chave foi alterada.")
-                return
+        elif is_replace_operation:
+             # Caso de uso: python eleicoes.py --replace old@email new@email
+             print(f"\n[INFO] Modo Substituição de Credencial (unitário) ativado para {args.destinatario}.")
+        else:
+            # Caso de uso: python eleicoes.py jose@email.com
+            # Neste ponto, args.destinatario é um e-mail único.
+            print(f"\n[INFO] Modo Reenvio (unitário) ativado para {args.destinatario}.")
             
         print("\n" + "="*50 + "\n")
         
         # O bloco try/except/finally original do usuário (Lógica Principal)
         try:
-            sheet_service = GoogleSheetsService(SPREADSHEET_ID)
             eleitores = load_eleitores()
             
             if not eleitores:
@@ -1047,18 +1123,25 @@ def main():
                 return
 
             targets = []
-            if args.destinatario.upper() == 'TODOS':
-                targets = eleitores
+            # A checagem de is_target_all já garante que o fluxo abaixo só rodará para e-mails únicos.
+            
+            # ATENÇÃO: args.destinatario AGORA é o NEW_EMAIL corrigido no caso de --replace
+            found = next((e for e in eleitores if e.email == args.destinatario), None)
+            
+            if found:
+                targets = [found]
+                # Se for envio unitário (e-mail específico), forçamos o resend para que o envio ocorra.
+                args.resend = True 
             else:
-                found = next((e for e in eleitores if e.email == args.destinatario), None)
-                if found:
-                    targets = [found]
-                    args.resend = True  
-                else:
-                    print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
-                    return
+                # Este erro agora só ocorre se: 
+                # 1. O e-mail nunca existiu (caso normal de reenvio unitário), OU
+                # 2. A função update_eleitor_email FALHOU (o que já foi tratado acima, mas é um bom fallback)
+                print(f"[ERRO] Eleitor {args.destinatario} não encontrado na lista (ou o e-mail é inválido).")
+                return
 
             # 4. Lógica de embaralhamento criptograficamente seguro (não-reprodutível)
+            # Esta seção não será executada, pois targets terá no máximo 1 elemento,
+            # mas é mantida por segurança/modularidade caso targets seja modificado.
             if len(targets) > 1:
                 secrets.SystemRandom().shuffle(targets)
                 
@@ -1068,6 +1151,8 @@ def main():
             print(f"[INFO] Iniciando processamento de {len(targets)} eleitor(es)...")
             
             for eleitor in targets:
+                # 'sheet_service' está definido no escopo externo e acessível aqui.
+                # args.resend está TRUE, garantindo o reenvio/geração da nova chave.
                 process_eleitor(eleitor, sheet_service, args.resend, args.production)
 
             # 5. Atualização da flag de apuração (run once)
