@@ -957,8 +957,9 @@ def main():
     # 0. Configuração de Argumentos (Deve ser a primeira coisa a rodar)
     parser = argparse.ArgumentParser(description="Script de gerenciamento de eleitores e envio de credenciais para votação eletrônica.")
     parser.add_argument('destinatario', nargs='?', default='TODOS', help="eleitor@email.com.br (ou 'TODOS') para processamento.")
+    parser.add_argument('--replace', nargs=2, metavar=('OLD', 'NEW'), help="Inativa credencial do OLD_EMAIL e envia novas chaves para NEW_EMAIL.")
     parser.add_argument('--production', action='store_true', help="Ativa o modo de produção (envios REAIS de e-mail).")
-    parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
+    # parser.add_argument('--resend', action='store_true', help="Força o reenvio de credenciais (gera nova chave) para TODOS. USE COM CAUTELA.")
     args = parser.parse_args()
 
     # --- NOVO: INÍCIO DO REDIRECIONAMENTO DE SAÍDA ---
@@ -987,6 +988,31 @@ def main():
 
         # 3. Executa Auditoria de Arquivos
         # generate_audit_hashes(args.production)
+
+        if args.replace:
+            old_email, new_email = args.replace
+            print(f"\n🔄 OPERAÇÃO DE SUBSTITUIÇÃO: {old_email} -> {new_email}")
+            
+            # 1. Carrega histórico local
+            registros = load_enviados()
+            registro_antigo = next((r for r in registros if r.email == old_email and r.is_active), None)
+            
+            if not registro_antigo:
+                print(f"[ERRO] Credencial ativa para {old_email} não encontrada no histórico local.")
+                return
+
+            # 2. Invalida no Google Sheets e Localmente
+            print(f"[INFO] Invalidando credencial antiga ({registro_antigo.user_id})...")
+            sheet_service.invalidate_old_key(registro_antigo.user_id)
+            
+            for r in registros:
+                if r.email == old_email:
+                    r.is_active = False
+            save_enviados_atomically(registros)
+
+            # 3. Configura o alvo para ser o NOVO e-mail
+            args.destinatario = new_email
+            args.resend = True # Garante que o script processe mesmo se o e-mail novo já existir (segurança)
 
         # 4. Alertas de Segurança e Confirmação
         if args.production:
