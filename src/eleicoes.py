@@ -660,18 +660,24 @@ def log_event(level: str, email: str, user_id: str, message: str, is_production:
         sys.exit(1)
 
 def save_enviados_atomically(registros: List[RegistroEnvio]) -> None:
-    """Salva a lista completa de registros de forma atômica."""
+    """
+    Salva a lista completa de registros de forma atômica.
+    IMPORTANTE: Não captura exceções. Se falhar (ex: arquivo aberto), 
+    o erro subirá para parar o script imediatamente.
+    """
     temp_filepath = ENVIADOS_FILEPATH + '.tmp'
-    try:
-        with open(temp_filepath, mode='w', newline='', encoding=ENCODING) as f:
-            writer = csv.writer(f, delimiter=DELIMITER)
-            writer.writerow(RegistroEnvio.__annotations__.keys()) # Escreve cabeçalho
-            for reg in registros:
-                writer.writerow(list(asdict(reg).values()))
-        
-        os.replace(temp_filepath, ENVIADOS_FILEPATH)
-    except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha ao salvar registros de envio: {e}")
+    
+    # 1. Tenta escrever no arquivo temporário
+    with open(temp_filepath, mode='w', newline='', encoding=ENCODING) as f:
+        writer = csv.writer(f, delimiter=DELIMITER)
+        writer.writerow(RegistroEnvio.__annotations__.keys()) # Cabeçalho
+        for reg in registros:
+            writer.writerow(list(asdict(reg).values()))
+    
+    # 2. Substituição atômica
+    # Se o arquivo 'enviados.csv' estiver aberto no Excel, esta linha
+    # lançará um PermissionError. Como removemos o try/except, isso parará o script.
+    os.replace(temp_filepath, ENVIADOS_FILEPATH)
 
 
 # --- 6. GERAÇÃO DE CHAVES E ENCRIPTAÇÃO ---
